@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=燕窝 Yanwo
+Name[en]=Yanwo
+GenericName=游戏启动器
+GenericName[en]=Game Launcher
+Comment=第三方游戏聚合启动器（Wine/Proton 编排 + 手柄输入桥）
+Comment[en]=Third-party game hub (Wine/Proton orchestration + gamepad bridge)
+Exec=/home/deck/workplace/yanwo/bin/yanwo
+Terminal=false
+Categories=Game;Emulator;
+Keywords=game;launcher;proton;wine;yanwo;燕窝;
+Icon=yanwo
+StartupNotify=true

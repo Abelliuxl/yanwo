@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# 燕窝 Yanwo 入口脚本。
+# 不安装、不依赖 root：直接把 src/ 塞进 PYTHONPATH 跑。
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
+
+# Tk/Qt 需要图形环境；桌面会话与 Steam/gamescope 会自带 DISPLAY/XAUTHORITY。
+exec /usr/bin/python3 -m yanwo "$@"

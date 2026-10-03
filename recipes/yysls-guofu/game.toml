@@ -1,0 +1,80 @@
+# 燕云十六声（国服）—— 燕窝 Yanwo 配方
+#
+# 这个文件把"怎么装、怎么起、怎么收尾"全部数据化。改游戏不用改代码。
+# 协议见 docs/RECIPES.md；踩坑原因见 docs/DEV-NOTES.md。
+
+id = "yysls-guofu"
+name = "燕云十六声（国服）"
+subtitle = "网易国服 · 极速版 · GE-Proton"
+launcher_kind = "wine"
+
+[vars]
+# Proton 前缀（P1 复用 Steam 已经建好的那个；以后可由燕窝自管）
+compatdata = "~/.local/share/Steam/steamapps/compatdata/2885173776"
+prefix = "${compatdata}/pfx"
+
+# ---------------- 首次安装（P1 仅记录，不自动执行） ----------------
+[install]
+kind = "wine_installer"
+installer_url = "https://h72.gdl.netease.com/yysls_1.9.36_netease_setup.exe"
+installer_file = "~/Games/yysls/yysls_1.9.36_netease_setup.exe"
+expect_user_gui = true          # 安装器需要用户点几下（选极速版、等下载）
+
+# 启动链
+# ----------------
+# 一个 step = 一个进程。多数游戏只有一步（官方启动器）；后续可能多步（更新器 → 启动器 …）
+#
+# ① 启动器是 Qt 程序，在 4K+300% 缩放下会以 ~120MB/s 泄漏显存（曾 7 分钟涨到 43GB → 死锁冻机）。
+#    强制 Qt 软件渲染后稳定在 ~90MB（见 ③ 的 env）。这是**必须**的，别删。
+# ② 游戏本体是 D3D12，必须强制 VKD3D-Proton + DXVK（见下面 dll_overrides / dll_paths）。
+[[steps]]
+kind = "wine"
+prefix = "${prefix}"
+workdir = "${prefix}/drive_c/Program Files/yysls/Win32/deploy"
+exe = "launcher.exe"
+wine = "${proton_wine}"
+proton_dir = "${proton_dir}"
+
+# ② 游戏本体是 D3D12。普通 wine 会挑自带的旧 vkd3d（libvkd3d-1.dll），游戏一进 InitState 就空指针闪退。
+#    必须按 Proton 的做法强制用 VKD3D-Proton + DXVK（下面的 dll_overrides / dll_paths）。
+dll_overrides = [
+  "d3d11=n,b", "d3d10core=n,b", "d3d10=n,b", "d3d10_1=n,b",
+  "d3d9=n,b", "dxgi=n,b", "d3d12=n,b", "d3d12core=n,b",
+]
+dll_paths = [
+  "${proton_lib}/wine/vkd3d-proton",
+  "${proton_lib}/vkd3d",
+  "${proton_lib}/wine",
+]
+
+# ③ 附加环境变量。⚠️ TOML 坑：`[steps.env]` 会把“当前表”切到 env，
+#    所以这个子表必须放在该 step 所有普通键之后。
+[steps.env]
+QT_OPENGL = "software"
+QT_QUICK_BACKEND = "software"
+
+# ---------------- 进程识别（用于状态机，不靠父子关系） ----------------
+[detect]
+launcher_procs = ["launcher.exe"]
+game_procs = ["yysls.exe"]
+
+# ---------------- 退出规则 ----------------
+[policy]
+on_game_exit = "wait_launcher"     # 燕云的官方启动器是常驻的：游戏退了它在，用户可能再进
+on_launcher_exit = "return_to_hub"
+kill_orphan_wine = true            # 收尾时清掉残留 wine 进程组
+
+# ---------------- 显存安全阀（独立 vram-guard.service 在跑时会让位给它） ----------------
+[safety]
+max_group_vram_gb = 8
+max_growth_gb = 4
+window_seconds = 60
+max_global_vram_pct = 92
+graceful_close_first = true        # 先发窗口关闭事件再杀（否则下载缓存被判损坏 → 重下 125G）
+
+# ---------------- 输入桥（P2 实现） ----------------
+[bridge]
+active_when = ["hub", "launcher"]  # 游戏运行时关掉，交给游戏自己的手柄支持
+profile = "cursor_click"
+backend = "xdotool"                # 零 root
+enabled = false                    # P2 打开

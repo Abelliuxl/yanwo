@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- 燕窝 Yanwo：一只"巢"托着 play -->
+  <rect width="128" height="128" rx="28" fill="#0f1115"/>
+  <!-- 巢（两层弧） -->
+  <path d="M20 72 a44 34 0 0 0 88 0" fill="none" stroke="#f0c040" stroke-width="10" stroke-linecap="round"/>
+  <path d="M30 92 a34 22 0 0 0 68 0" fill="none" stroke="#b98f24" stroke-width="8" stroke-linecap="round"/>
+  <!-- 巢里孵着的 play -->
+  <path d="M54 40 l30 18 -30 18 z" fill="#f0c040"/>
+</svg>

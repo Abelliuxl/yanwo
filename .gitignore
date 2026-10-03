@@ -1,0 +1,19 @@
+# 运行态
+state/
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+
+# 备份
+*.bak-*
+*.orig
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
