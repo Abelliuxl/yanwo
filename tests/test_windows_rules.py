@@ -143,6 +143,46 @@ class TestRules(unittest.TestCase):
         self.assertFalse(recipe.windows_enabled)
         self.assertEqual(recipe.window_rules, [])
 
+    def test_focus_guard_unmaps_dialog_that_steals_focus(self):
+        """年龄卡抢走游戏显示(:1)的输入焦点时：unmap 它并把焦点还给登录窗。"""
+        from unittest.mock import MagicMock
+
+        rules = WindowRules([])
+        rules._gamescope.target = 0x100  # 登录窗
+        rules._dialog_ids = {0x200}      # MpayAgeTipsForm
+        conn = MagicMock()
+        conn.input_focus.return_value = 0x200
+        with patch("yanwo.core.windows.connection", return_value=conn):
+            rules._guard_focus()
+        conn.unmap.assert_called_once_with(0x200)
+        conn.focus.assert_called_once_with(0x100)
+        self.assertEqual(rules._focus_hidden, {0x200})
+
+    def test_focus_guard_leaves_focus_alone_when_already_target(self):
+        from unittest.mock import MagicMock
+
+        rules = WindowRules([])
+        rules._gamescope.target = 0x100
+        rules._dialog_ids = {0x200}
+        conn = MagicMock()
+        conn.input_focus.return_value = 0x100  # 焦点本来就在目标窗
+        with patch("yanwo.core.windows.connection", return_value=conn):
+            rules._guard_focus()
+        conn.unmap.assert_called_once_with(0x200)   # 辅助窗照样收起
+        conn.focus.assert_not_called()               # 但不去改焦点
+
+    def test_focus_guard_returns_focus_to_target(self):
+        from unittest.mock import MagicMock
+
+        rules = WindowRules([])
+        rules._gamescope.target = 0x100
+        rules._dialog_ids = {0x200}
+        conn = MagicMock()
+        conn.input_focus.return_value = 0x999  # 别的窗拿了焦点
+        with patch("yanwo.core.windows.connection", return_value=conn):
+            rules._guard_focus()
+        conn.focus.assert_called_once_with(0x100)
+
 
 if __name__ == "__main__":
     unittest.main()

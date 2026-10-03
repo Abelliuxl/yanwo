@@ -564,6 +564,8 @@ class WindowRules:
         self._last_apply: dict[str, float] = {}
         self._stop = threading.Event()
         self._gamescope = GamescopeFocus()
+        self._dialog_ids: set[int] = set()      # gamescope_dialog 标记的辅助窗（年龄卡等）
+        self._focus_hidden: set[int] = set()    # 为防抢焦点而临时 unmap 的辅助窗
 
     def sync_gamescope(self) -> None:
         focus_rules = [r for r in self.rules if r.get("enabled", True)
@@ -576,6 +578,7 @@ class WindowRules:
                    and "gamescope_dialog" in r.get("actions", [])
                    for w in match_title(r.get("match", ""), wins)
                    if target and w.pid == target.pid]
+        self._dialog_ids = set(dialogs)
         excluded = set(dialogs)
         excluded.update(w.wid for r in self.rules if r.get("enabled", True)
                         and "gamescope_ignore" in r.get("actions", [])
@@ -586,6 +589,41 @@ class WindowRules:
         self._gamescope.update(target.wid if target else 0, dialogs)
         if previous != self._gamescope.target:
             self.log.info("gamescope 显示窗口 -> %#x", self._gamescope.target)
+
+    def _guard_focus(self) -> None:
+        """把 gamescope_dialog 辅助窗（年龄提示卡）收起来，防止它抢输入焦点。
+
+        实测（2026-10-04）：Steam 原生键盘弹出的一瞬间，MpayAgeTipsForm 会拿到
+        游戏 X 显示（:1）的输入焦点，导致键盘按键全进到那个空窗口、登录框什么都收不到。
+        这些辅助窗只是提示、不需要焦点，也不需要用焦点才能显示：只要登录窗在，
+        就主动把它们 unmap（游戏再 map 出来就再收一次），从根上避免抢焦点。
+        """
+        target = self._gamescope.target
+        if not target:
+            return
+        c = connection()
+        if c is None:
+            return
+        for wid in list(self._dialog_ids):
+            try:
+                c.unmap(wid)
+                if wid not in self._focus_hidden:
+                    self.log.info("收起辅助窗 %#x（防它抢输入焦点）", wid)
+                self._focus_hidden.add(wid)
+            except Exception:  # noqa: BLE001
+                pass
+        if c.input_focus() not in (target, 0):
+            c.focus(target)
+
+    def _restore_hidden(self) -> None:
+        c = connection()
+        if c is not None:
+            for wid in list(self._focus_hidden):
+                try:
+                    c.map_(wid)
+                except Exception:  # noqa: BLE001
+                    pass
+        self._focus_hidden.clear()
 
     def stop(self) -> None:
         self._stop.set()
@@ -644,14 +682,16 @@ class WindowRules:
             while not self._stop.is_set():
                 try:
                     self.sync_gamescope()  # 登录可晚于 watch_seconds；全程维护并自动释放。
+                    self._guard_focus()
                     if time.time() < deadline:
                         self.tick()
                     self._eval_gate()
                 except Exception:  # noqa: BLE001
                     self.log.exception("窗口规则执行出错")
-                self._stop.wait(2.0)
+                self._stop.wait(0.5)
         finally:
             try:
                 self._gamescope.release()
             except Exception:  # noqa: BLE001
                 self.log.exception("归还 gamescope 显示焦点失败")
+            self._restore_hidden()

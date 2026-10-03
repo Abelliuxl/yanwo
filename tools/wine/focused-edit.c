@@ -17,6 +17,16 @@ int main(void) {
     HWND root = GetAncestor(g.hwndFocus, GA_ROOT);
     RECT r, client;
     GetWindowRect(g.hwndFocus, &r);
+    /* MPAY draws a tall input row around a much shorter child EditWnd.
+     * The row padding also gives this edit focus on click. Check that row,
+     * otherwise account/phone clicks below the text baseline are rejected.
+     */
+    char root_class[128] = {0};
+    GetClassNameA(root, root_class, sizeof(root_class));
+    if (!strcmp(root_class, "MPAY_LOGIN") && !_strnicmp(cls, "EditWnd_", 8)) {
+        LONG pad = (r.bottom - r.top) * 2 / 3;
+        InflateRect(&r, pad, pad);
+    }
     POINT mouse; GetCursorPos(&mouse);
     if (!PtInRect(&r, mouse)) { puts("null"); return 0; }
     GetClientRect(root, &client);
