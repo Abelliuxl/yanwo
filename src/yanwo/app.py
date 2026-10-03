@@ -11,6 +11,7 @@ import threading
 
 from .core.session import Phase, Session
 from .input.daemon import InputDaemon
+from .input.steam_keyboard import SteamKeyboard
 from .log import get_logger
 from .recipe import Recipe
 from .ui.text_menu import TextMenuUI
@@ -21,7 +22,10 @@ class HubApp:
         self.log: logging.Logger = get_logger("yanwo.app")
         self.recipes = list(recipes)
         self.session: Session | None = None
+        self._session_thread: threading.Thread | None = None
         self._quit = False
+        self.steam_keyboard = SteamKeyboard()
+        self._keyboard_pending = False
         self.ui = ui if ui is not None else TextMenuUI(
             self._game_list(), self._on_launch, fullscreen=fullscreen
         )
@@ -63,6 +67,15 @@ class HubApp:
     # ---------- 手柄 ----------
     def _on_intent(self, kind: str, val: int) -> None:
         ui = self.ui
+        if kind == "pointer_click":
+            if self._keyboard_pending or self._quit:
+                return
+            self._keyboard_pending = True
+            if hasattr(ui, "_post"):
+                ui._post(lambda: ui.root.after(120, self._open_keyboard))
+            else:
+                self._open_keyboard()
+            return
         if kind == "nav" and hasattr(ui, "move_by"):
             ui.move_by(val)
         elif kind == "confirm" and hasattr(ui, "activate"):
@@ -81,6 +94,30 @@ class HubApp:
     def _on_input_mode(self, mode: str) -> None:
         self.input.set_mode(mode)
 
+    def _open_keyboard(self) -> None:
+        try:
+            if self.input.mode in ("launcher", "cursor") and self.session:
+                field = self.steam_keyboard.focused_edit(self.session.recipe)
+                if field:
+                    self.steam_keyboard.open(field)
+                    self.log.info("点击可编辑输入框，已请求 Steam 原生键盘")
+        except Exception as error:
+            self.log.warning("打开原生键盘失败: %s", error)
+            self.ui.set_status("打开 Steam 键盘失败，请按 Steam + X 重试")
+        finally:
+            self._keyboard_pending = False
+            try:
+                self.input.keyboard_active = self.steam_keyboard.input_taken()
+            except Exception as error:
+                self.log.warning("读取 Steam 输入状态失败: %s", error)
+                self.input.keyboard_active = False
+
+    def _close_keyboard(self) -> None:
+        try:
+            self.steam_keyboard.close()
+        except Exception as error:
+            self.log.warning("关闭 Steam 键盘失败: %s", error)
+
     def _on_launch(self, idx: int) -> None:
         if not (0 <= idx < len(self.recipes)):
             return
@@ -94,16 +131,24 @@ class HubApp:
             recipe, self.ui, self.log, on_input_mode=self._on_input_mode
         )
         self.session.clicker = self.input.cursor  # 供窗口规则里的 click 动作使用
-        threading.Thread(
+        self._session_thread = threading.Thread(
             target=self.session.run, daemon=True, name=f"session-{recipe.id}"
-        ).start()
+        )
+        self._session_thread.start()
 
     def _tick(self) -> None:
         if self._quit:
+            self._close_keyboard()
             if self.session:
                 self.session.request_stop("quit")
             self.ui.destroy()
             return
+        if not self._keyboard_pending:
+            try:
+                self.input.keyboard_active = (self.input.mode in ("launcher", "cursor")
+                                               and self.steam_keyboard.input_taken())
+            except Exception:
+                self.log.exception("检测 Steam 输入状态失败")
         root = getattr(self.ui, "root", None)
         if root is not None:
             root.after(300, self._tick)
@@ -117,10 +162,14 @@ class HubApp:
 
     def shutdown(self) -> None:
         self._quit = True
+        self._close_keyboard()
         try:
             self.input.stop()
         except Exception:  # noqa: BLE001
             pass
         if self.session:
             self.session.request_stop("shutdown")
-            self.session.cleanup()
+            if self._session_thread is not None:
+                self._session_thread.join(timeout=20)
+            else:
+                self.session.cleanup()

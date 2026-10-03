@@ -144,13 +144,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     # 从 Steam（或桌面入口加 --fullscreen）启动时，自动全屏——比依赖 LaunchOptions 稳
     fullscreen = args.fullscreen or bool(os.environ.get("SteamGameId") or os.environ.get("SteamAppId"))
+    app = None
     try:
-        HubApp(recipes, fullscreen=fullscreen).run()
+        app = HubApp(recipes, fullscreen=fullscreen)
+        app.run()
     except Exception as e:  # noqa: BLE001
         # 图形环境起不来时至少留下清楚的日志（方便在游戏模式里排查）
         logging.getLogger("yanwo").exception("Hub 启动失败: %s", e)
         print(f"燕窝 Yanwo 启动失败: {e}\n详见 {LOG_DIR}/yanwo.log", file=sys.stderr)
         return 1
+    finally:
+        if app is not None:
+            app.shutdown()
     return 0
 
 

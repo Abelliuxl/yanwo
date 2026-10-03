@@ -179,13 +179,13 @@ class TestComboAndPause(unittest.TestCase):
         d.cursor.click = lambda b=1: calls.append("click")  # type: ignore
         d.set_mode("launcher")
         d._dispatch([("confirm", 1)])
-        self.assertEqual(calls, ["click"], "正常状态下要注入")
+        self.assertEqual(calls, ["click", "pointer_click"], "正常状态下要注入")
         self.assertTrue(d.toggle_pause("test"))
         d._dispatch([("confirm", 1)])
-        self.assertEqual(calls, ["click"], "暂停后不能再注入")
+        self.assertEqual(calls, ["click", "pointer_click"], "暂停后不能再注入")
         self.assertFalse(d.toggle_pause("test"))
         d._dispatch([("confirm", 1)])
-        self.assertEqual(calls, ["click", "click"], "恢复后继续注入")
+        self.assertEqual(calls, ["click", "pointer_click", "click", "pointer_click"], "恢复后继续注入")
 
 
 class TestDaemon(unittest.TestCase):

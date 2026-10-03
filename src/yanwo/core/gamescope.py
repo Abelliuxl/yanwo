@@ -15,6 +15,8 @@ class GamescopeFocus:
         self.target = 0
         self.previous = 0
         self.types: dict[int, str] = {}
+        self.local_display = None
+        self.local_previous = 0
 
     def _run(self, display, args):
         result = subprocess.run(["xprop", "-display", display, *args],
@@ -56,6 +58,14 @@ class GamescopeFocus:
         if not self.target:
             self.previous = current
         game_display = os.environ.get("DISPLAY", ":0")
+        if game_display != self.display:
+            local = self._get(game_display, self.PROPERTY)
+            if local is not None and local in (0, self.target, target):
+                if self.local_display is None:
+                    self.local_display, self.local_previous = game_display, local
+                if local != target:
+                    self._run(game_display, ["-root", "-f", self.PROPERTY, "32c",
+                                             "-set", self.PROPERTY, str(target)])
         for wid in dialogs:
             out = self._run(game_display, ["-id", hex(wid), "_NET_WM_WINDOW_TYPE"])
             if wid not in self.types:
@@ -68,6 +78,11 @@ class GamescopeFocus:
         self.target = target
 
     def release(self):
+        if self.local_display is not None:
+            if self._get(self.local_display, self.PROPERTY) == self.target:
+                self._run(self.local_display, ["-root", "-f", self.PROPERTY, "32c",
+                                               "-set", self.PROPERTY, str(self.local_previous)])
+            self.local_display = None
         if self.target:
             if self._get(self.display, self.PROPERTY) == self.target:
                 self._set(self.previous)

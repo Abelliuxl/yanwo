@@ -14,6 +14,7 @@ from yanwo.core.windows import (  # noqa: E402
     WindowRules,
     match_title,
     verdict_activate,
+    select_login_dialog,
 )
 
 
@@ -145,3 +146,29 @@ class TestRules(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLoginDialogs(unittest.TestCase):
+    def test_unnamed_popup_takes_over_and_closing_returns_to_login(self):
+        login = WindowInfo(1, "登录", pid=10, w=720, h=960, mapped=True)
+        popup = WindowInfo(2, "", pid=10, w=680, h=468, mapped=True, transient_for=1)
+        rules = WindowRules([{"match": "^登录$", "actions": ["gamescope_focus"]}])
+        with patch("yanwo.core.windows.list_windows", return_value=[login, popup]), \
+             patch.object(rules._gamescope, "update") as update:
+            rules.sync_gamescope()
+            update.assert_called_once_with(2, [])
+        popup.mapped = False
+        with patch("yanwo.core.windows.list_windows", return_value=[login, popup]), \
+             patch.object(rules._gamescope, "update") as update:
+            rules.sync_gamescope()
+            update.assert_called_once_with(1, [])
+
+    def test_nested_popup_skips_age_shadow_tooltip_and_other_process(self):
+        login = WindowInfo(1, "登录", pid=10, w=720, h=960, mapped=True)
+        def child(wid, parent, **kwargs):
+            return WindowInfo(wid, "", pid=kwargs.pop("pid", 10),
+                              w=680, h=468, mapped=True, transient_for=parent, **kwargs)
+        popup, nested = child(2, 1), child(3, 2)
+        age, tip = child(4, 1), child(5, 2)
+        shadow, unrelated = child(6, 2, accepts_focus=False), child(7, 2, pid=20)
+        self.assertEqual(select_login_dialog(login, [login, popup, nested, age, tip, shadow, unrelated], {4, 5}).wid, 3)

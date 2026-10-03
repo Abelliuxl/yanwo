@@ -93,6 +93,12 @@ match = "^MpayAgeTipsForm$"
 actions = ["gamescope_dialog"]
 priority = 20
 
+[[windows.rules]]
+name = "协议说明小浮层不作为登录主弹窗"
+match = "^MPAY_POLICY_TIP_FORM$"
+actions = ["gamescope_ignore"]
+priority = 20
+
 # ---------------- 输入桥（P2 实现） ----------------
 [bridge]
 active_when = ["hub", "launcher"]  # Hub 和官方启动器阶段一直开

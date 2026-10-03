@@ -45,3 +45,15 @@ class TestGamescopeFocus(unittest.TestCase):
             focus.release()
             self.assertEqual(run.call_args.args[1][-1], "_NET_WM_WINDOW_TYPE_NORMAL")
             self.assertEqual(focus.types, {})
+
+    def test_game_and_compositor_focus_are_restored_separately(self):
+        focus = GamescopeFocus()
+        focus.display = ":0"
+        with patch.dict("os.environ", {"DISPLAY": ":1"}), \
+             patch.object(focus, "_get", side_effect=[0, 0, 123, 123]), \
+             patch.object(focus, "_set") as setter, patch.object(focus, "_run") as run:
+            focus.update(123)
+            focus.release()
+            self.assertEqual([c.args for c in setter.call_args_list], [(123,), (0,)])
+            self.assertEqual([c.args[0] for c in run.call_args_list], [":1", ":1"])
+            self.assertEqual(run.call_args.args[1][-1], "0")

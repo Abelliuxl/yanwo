@@ -64,6 +64,7 @@ class WindowInfo:
     h: int = 0
     mapped: bool = False
     transient_for: int = 0        # 非 0 = 这是某个窗口的弹窗/对话框
+    accepts_focus: bool = True   # 阴影、鼠标穿透窗和无激活工具窗不参与弹窗切换
 
     @property
     def is_dialog(self) -> bool:
@@ -157,6 +158,7 @@ class _X:
         self._utf8_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"UTF8_STRING", 0)
         self._name_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_WM_NAME", 0)
         self._transient_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"WM_TRANSIENT_FOR", 0)
+        self._wine_exstyle_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_WINE_HWND_EXSTYLE", 0)
         self._active_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_ACTIVE_WINDOW", 0)
         self.last_error = 0
         # libX11 的默认错误处理器会直接 exit(1)：一个 BadMatch 就能把 Hub 干掉。
@@ -248,14 +250,17 @@ class _X:
         for i in range(n.value):  # X 返回：底 → 顶
             wid = int(p[i])
             title = self._name(wid)
-            if not title:
-                continue
             x, y, w, h = self._geom(wid)
             traw, _ = self._prop(wid, self._transient_atom)
             # 32 位属性只有 4 字节，要补齐再解析（别判 len>=8）
             transient = int.from_bytes(traw[:4].ljust(4, b"\0"), "little") if traw else 0
+            exstyle_raw = self._raw_prop(wid, self._wine_exstyle_atom)
+            exstyle = int.from_bytes(exstyle_raw[:4], "little") if exstyle_raw else 0
+            accepts_focus = not (exstyle & (0x20 | 0x08000000))
             out.append(WindowInfo(wid, title, self._pid(wid), x, y, w, h,
-                                  self._mapped(wid), transient))
+                                  self._mapped(wid), transient, accepts_focus))
+        if p:
+            self.lib.XFree(p)
         return out
 
     def index_of(self, wid: int, wins: list[WindowInfo]) -> int:
@@ -402,7 +407,7 @@ def game_windows(wins: list[WindowInfo] | None = None) -> list[WindowInfo]:
     """可见的、非辅助窗口（按底→顶顺序）。规则和光标门控都只看这个列表。"""
     wins = list_windows() if wins is None else wins
     return [w for w in wins if w.mapped and not (w.w <= 1 and w.h <= 1)
-            and not _IGNORE_TITLE.search(w.title)]
+            and w.accepts_focus and not _IGNORE_TITLE.search(w.title)]
 
 
 @dataclass
@@ -527,6 +532,21 @@ def apply_actions(win: WindowInfo, actions: list[str], clicker=None) -> list[str
     return results
 
 
+def select_login_dialog(login: WindowInfo, wins: list[WindowInfo], excluded: set[int]) -> WindowInfo:
+    """沿登录窗的 transient 链跟随真正弹窗，跳过年龄卡、阴影和提示浮层。"""
+    target = login
+    seen = {login.wid}
+    while True:
+        child = next((w for w in reversed(wins)
+                      if w.mapped and w.w > 1 and w.h > 1 and w.accepts_focus
+                      and w.pid == login.pid and w.transient_for == target.wid
+                      and w.wid not in excluded and w.wid not in seen), None)
+        if child is None:
+            return target
+        target = child
+        seen.add(child.wid)
+
+
 class WindowRules:
     """按优先级把一个"规则表"作用到游戏窗口上。"""
 
@@ -556,6 +576,12 @@ class WindowRules:
                    and "gamescope_dialog" in r.get("actions", [])
                    for w in match_title(r.get("match", ""), wins)
                    if target and w.pid == target.pid]
+        excluded = set(dialogs)
+        excluded.update(w.wid for r in self.rules if r.get("enabled", True)
+                        and "gamescope_ignore" in r.get("actions", [])
+                        for w in match_title(r.get("match", ""), wins))
+        if target:
+            target = select_login_dialog(target, wins, excluded)
         previous = self._gamescope.target
         self._gamescope.update(target.wid if target else 0, dialogs)
         if previous != self._gamescope.target:
@@ -590,7 +616,7 @@ class WindowRules:
                 continue
             self._last_apply[key] = now
             acts = [a for a in rule.get("actions", [])
-                    if a not in ("gamescope_focus", "gamescope_dialog")]
+                    if a not in ("gamescope_focus", "gamescope_dialog", "gamescope_ignore")]
             if not acts:
                 continue
             for win in hits:

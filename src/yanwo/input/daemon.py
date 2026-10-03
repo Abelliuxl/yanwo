@@ -1,7 +1,7 @@
 """手柄守护线程：读设备 → 映射 → 按当前模式分发。
 
 三种模式（由 Hub 按阶段切换）：
-    hub      Hub 菜单里：十字键/左摇杆选，A 确认，B 返回
+    hub      Hub 菜单里：十字键选，A 确认，B 返回
     launcher 官方启动器里：右摇杆当鼠标，A 左键，B 右键，Start 回车，X Esc
     off      游戏运行中：完全放空，交给游戏自己的手柄支持
 """
@@ -48,6 +48,7 @@ class InputDaemon(threading.Thread):
         self.enabled = True
         self.pause_combo: list[str] = []   # 例如 ["select","third"]（Select+X）
         self.paused = False                # 暂停时完全不注入（给 Steam 覆盖界面让路）
+        self.keyboard_active = False      # Steam 原生键盘/菜单接管输入，独立于手动暂停
         self._combo_was_down = False
         # 采样/刷新周期：5ms ≈ 200Hz。这是"光标丝滑"的关键（配合 XTest 后端）
         self.poll_s = 0.005
@@ -70,6 +71,8 @@ class InputDaemon(threading.Thread):
             return "手柄：已禁用"
         if self.paused:
             return f"手柄：⏸ 已暂停（{self.device_name or '无设备'}）"
+        if self.keyboard_active:
+            return "手柄：Steam 键盘/菜单操作中"
         if not self.connected:
             return "手柄：未找到设备（/dev/input/js*）"
         if not self.ever_active:
@@ -89,7 +92,7 @@ class InputDaemon(threading.Thread):
 
     def _dispatch(self, intents: list[tuple[str, int]]) -> None:
         mode = self.mode
-        if self.paused:
+        if self.paused or self.keyboard_active:
             return  # 暂停：一个字节都不注入（Steam 覆盖界面要用它自己那套）
         for kind, val in intents:
             if mode == MODE_OFF:
@@ -106,6 +109,8 @@ class InputDaemon(threading.Thread):
     def _launcher_action(self, kind: str, val: int) -> None:
         if kind == "confirm":
             self.cursor.click(1)
+            if self.on_intent:
+                self.on_intent("pointer_click", 1)
         elif kind == "back":
             self.cursor.click(3)
         elif kind == "third":
@@ -185,11 +190,11 @@ class InputDaemon(threading.Thread):
                             self.device_name = f"{active.path} {active.name}"
                             self._notify_status()
                         nav = mapper.nav_step(
-                            allow_left_stick=self.mode not in (MODE_LAUNCHER, MODE_CURSOR)
+                            allow_left_stick=False
                         )
                         if nav:
                             self._dispatch([("nav", nav)])
-                        if self.mode in (MODE_LAUNCHER, MODE_CURSOR) and not self.paused:
+                        if self.mode in (MODE_LAUNCHER, MODE_CURSOR) and not self.paused and not self.keyboard_active:
                             vx, vy = mapper.cursor_velocity()
                             if vx or vy:
                                 self.cursor.move(
