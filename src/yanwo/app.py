@@ -29,6 +29,7 @@ class HubApp:
         self.input = InputDaemon(
             on_intent=self._on_intent, on_status=self._on_pad_status, logger=self.log
         )
+        self._apply_bridge_config(None)
         try:
             self.input.start()
         except Exception:  # noqa: BLE001
@@ -51,6 +52,13 @@ class HubApp:
                 signal.signal(s, handler)
             except ValueError:
                 pass  # 非主线程时忽略
+
+    def _apply_bridge_config(self, recipe) -> None:
+        """把配方的 [bridge] 配置应用到桥（暂停组合键等）。没有配方时用默认。"""
+        combo = list(getattr(recipe, "bridge_pause_combo", []) or []) if recipe else []
+        self.input.pause_combo = combo
+        if combo:
+            self.log.info("输入桥暂停组合键: %s（按一次暂停、再按恢复）", "+".join(combo))
 
     # ---------- 手柄 ----------
     def _on_intent(self, kind: str, val: int) -> None:
@@ -81,6 +89,7 @@ class HubApp:
             return
         recipe = self.recipes[idx]
         self.log.info("启动：%s (%s)", recipe.name, recipe.id)
+        self._apply_bridge_config(recipe)
         self.session = Session(
             recipe, self.ui, self.log, on_input_mode=self._on_input_mode
         )

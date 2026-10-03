@@ -65,6 +65,14 @@ class TestBridgeGate(unittest.TestCase):
         g = BridgeGate(cursor_windows=["^(登录|Login)$"], cursor_on_dialogs=False)
         self.assertTrue(g.wants_cursor(wins)[0])
 
+    def test_pause_window_forces_off(self):
+        g = BridgeGate(cursor_windows=["登录"], pause_windows=["^Steam 覆盖"])
+        self.assertTrue(g.wants_cursor([self.main_win(), self.dialog(2, "登录")])[0])
+        wins = [self.main_win(), WindowInfo(3, "Steam 覆盖界面", 0, 0, 0, 1920, 1080, True)]
+        want, why = g.wants_cursor(wins)
+        self.assertFalse(want, "命中暂停窗口时必须关")
+        self.assertIn("暂停窗口", why)
+
     def test_helper_windows_ignored(self):
         g = BridgeGate([], True)
         wins = [self.main_win(), WindowInfo(9, "Default IME", 0, 0, 0, 1, 1, True, transient_for=1)]

@@ -155,3 +155,20 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
 所以桥的模式做成三层（`[bridge]` 里声明的 `cursor_windows` / `cursor_on_dialogs`）：
 游戏阶段里只要"命中标题"或"出现弹窗"（`WM_TRANSIENT_FOR` 非 0）→ 开 `cursor` 模式；
 只剩主窗口 → 回到 `off`。门控由窗口守护线程**全程**评估（规则本身只观察前 `watch_seconds` 秒）。
+
+## 17. gamescope 的视觉层级 ≠ X 堆叠顺序（2026-10-04 二次实测）
+
+- 我们用 `XLowerWindow` 把 `MpayAgeTipsForm` 从堆叠索引 9 降到 0（`XQueryTree` 确认），
+  但**玩家看到的画面没变**，那个小窗仍在前面。
+- 结论：game mode 下想靠"调整层级"解决"某个窗口挡着"是行不通的。可行的是
+  **让那个窗口消失**（`close` = WM_DELETE_WINDOW，应用自己关；或 `hide` = unmap）。
+- 所以窗口规则里 `lower` 只对 desktop(KWin) 有意义；game mode 请用 `close`/`hide`。
+
+## 18. 输入桥和 Steam 覆盖界面会打架（2026-10-04 用户反馈）
+
+- 我们的桥**只读设备、不独占**（故意的：这样游戏自己仍能拿到手柄），
+  所以唤出 Steam 覆盖界面/切窗口时，**两边同时收到手柄** → 光标和覆盖界面抢输入。
+- 缓解：`[bridge] pause_combo = ["select","third"]`（Select+X）——按一次暂停桥（一个字节都不注入），
+  再按恢复；暂停状态会显示在 Hub 底部（`⏸ 已暂停`）。
+- 也留了 `pause_windows`（标题正则）用于"某窗口出现就自动暂停"，但 Steam 覆盖界面在 game mode 下
+  通常是 gamescope 自己画的、**没有 X 窗口**，所以主要靠上面的快捷键。

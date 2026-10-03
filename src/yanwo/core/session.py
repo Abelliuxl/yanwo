@@ -155,10 +155,11 @@ class Session:
         """启动窗口守护：① 执行配方里的窗口规则；② 全程评估"游戏阶段要不要开光标桥"。"""
         r = self.recipe
         gate = None
-        if r.bridge_cursor_windows or r.bridge_cursor_on_dialogs:
+        if r.bridge_cursor_windows or r.bridge_cursor_on_dialogs or r.bridge_pause_windows:
             gate = windows.BridgeGate(
                 cursor_windows=r.bridge_cursor_windows,
                 cursor_on_dialogs=r.bridge_cursor_on_dialogs,
+                pause_windows=r.bridge_pause_windows,
             )
         if not r.window_rules and gate is None:
             self.log.debug("没有窗口规则/门控，跳过")

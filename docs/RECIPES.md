@@ -71,6 +71,8 @@ backend = "auto"                        # 自动：XTest → xdotool（零 root�
 # 游戏本体阶段默认"关"（尊重游戏自己的手柄支持），但只要出现"UI 窗口"就自动打开光标：
 cursor_windows = ["^(登录|Login)", "^Mpay", "公告|提示", "^(设置|Options)"]
 cursor_on_dialogs = true                # 通用启发式：任何弹窗（WM_TRANSIENT_FOR 非 0）也算
+pause_combo = ["select", "third"]       # 手柄组合键：按一次暂停桥、再按恢复（给 Steam 覆盖界面让路）
+pause_windows = []                      # 出现这些标题的窗口时自动暂停桥（正则）
 ```
 
 ## 内置变量（不用定义就能用）
@@ -112,8 +114,10 @@ cursor_on_dialogs = true                # 通用启发式：任何弹窗（WM_TR
 | `hide` | `"hide"` | 未实测 | ✅ |
 | `click` | `"click"` | 走 XTest 点击窗口中心（是否有效取决于窗口是否拿到输入） | ✅ |
 
-> 结论：**game mode 里想让"登录窗在前"，最靠谱的办法是 `lower` 把那个碍事的小窗压到底**，
-> 而不是去 raise 登录窗。
+> **血的教训（2026-10-04 二次实测）**：`lower` 虽然改了 X 的堆叠顺序，但
+> **gamescope 的视觉层级不跟 X 堆叠走** —— 所以"把碍事的窗口压到底"在 game mode 下**看着没变化**。
+> 真正管用的是让那个窗口**消失**：`close`（发 WM_DELETE_WINDOW，应用自己关）或 `hide`（unmap）。
+> 只想"让它在最前/最后"的诉求，在 game mode 下基本做不到；要处理就处理掉那个窗口。
 
 ## 约定与注意事项
 

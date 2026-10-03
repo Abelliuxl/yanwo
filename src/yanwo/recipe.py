@@ -74,6 +74,16 @@ class Recipe:
         return bool(self.bridge.get("cursor_on_dialogs", True))
 
     @property
+    def bridge_pause_combo(self) -> list[str]:
+        """手柄组合键：按一次暂停输入桥（Steam 覆盖界面/切窗口时用），再按恢复。"""
+        return list(self.bridge.get("pause_combo", []))
+
+    @property
+    def bridge_pause_windows(self) -> list[str]:
+        """出现匹配这些标题的窗口时，自动暂停输入桥。"""
+        return list(self.bridge.get("pause_windows", []))
+
+    @property
     def window_watch_seconds(self) -> float:
         return float(self.windows.get("watch_seconds", 120))
 

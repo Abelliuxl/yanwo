@@ -83,11 +83,16 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 enabled = true
 watch_seconds = 180          # 进游戏后观察多久（窗口是陆续冒出来的）
 
+# ⚠️ 2026-10-04 实测：lower 只改了 X 的堆叠顺序，**gamescope 的视觉层级不跟它走**，
+#    所以"压到底层"在 game mode 下看着没变化。真正治本的是让它消失：
+#      close = 发 WM_DELETE_WINDOW（等于点右上角 X，应用自己关；推荐）
+#      hide  = unmap（我们直接藏，应用不知道）
+#    如果 close 会让游戏流程出问题，就换成 ["hide"]。
 [[windows.rules]]
-name = "年龄提示压到底层"
+name = "年龄提示关掉（别挡着登录窗）"
 match = "MpayAgeTipsForm"
-actions = ["lower"]
-repeat_seconds = 10          # 游戏有时会再把它抬上来，定期重申
+actions = ["close"]
+repeat_seconds = 10
 priority = 20
 
 [[windows.rules]]
@@ -114,3 +119,8 @@ cursor_windows = [
   "确认|continue|Continue",
 ]
 cursor_on_dialogs = true           # 保险：任何"弹窗类"窗口（WM_TRANSIENT_FOR 非 0）也开
+
+# 暂停组合键：Select + X，按一次暂停输入桥（唤出 Steam 覆盖界面/切窗口时不会再打架），再按恢复
+pause_combo = ["select", "third"]
+# 如果某个窗口一出现就应该暂停桥，把标题正则写这里（Steam 覆盖界面通常没有 X 窗口，故靠快捷键兜底）
+pause_windows = []

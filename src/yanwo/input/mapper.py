@@ -124,5 +124,22 @@ class Mapper:
             return want
         return 0
 
+    # ---------- 组合键 ----------
+    def button_number(self, semantic: str) -> int | None:
+        """语义名 → 键编号（profile 里定义的 confirm/back/third/fourth/start/select）。"""
+        return {
+            "confirm": self.p.btn_confirm,
+            "back": self.p.btn_back,
+            "third": self.p.btn_third,
+            "fourth": self.p.btn_fourth,
+            "start": self.p.btn_start,
+            "select": self.p.btn_select,
+        }.get(semantic)
+
+    def combo_down(self, names: list[str]) -> bool:
+        nums = {self.button_number(n) for n in names}
+        nums.discard(None)
+        return bool(nums) and nums.issubset(self.buttons)
+
     def hat_state(self) -> tuple[int, int]:
         return self._hat_x, self._hat_y

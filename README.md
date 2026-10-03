@@ -24,6 +24,8 @@
 - **官方启动器**：**左摇杆**移光标（右摇杆也认），A 左键，B 右键，Start 回车，X 按 Esc
 - **游戏本体**：默认关掉（交给游戏自己的手柄支持），但**登录窗/公告/设置等 UI 窗口一出现就自动打开光标**
   （配方里 `[bridge] cursor_windows` 声明；通用启发式：任意弹窗也算）
+- **暂停开关**：**Select+X**（可在配方 `[bridge] pause_combo` 改）——按一次暂停桥，唤出 Steam 覆盖界面/切窗口
+  时不会再打架；再按一次恢复
 - 映射档：`input/profiles/xbox360.toml`（死区/速度/加速度都在里面）；诊断：`bin/yanwo calibrate`
 - 手感：光标输出走 XTest 直连 X11，循环 ~200Hz（不是每次 spawn 一个 xdotool）；光标形状保持系统原装
 - 如果手柄完全没反应：多半是 **Steam Input 抢住了物理设备** → 在 Steam 库里给燕窝这条

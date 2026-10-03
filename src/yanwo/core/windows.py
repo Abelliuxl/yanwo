@@ -307,11 +307,16 @@ class BridgeGate:
 
     cursor_windows: list[str] = field(default_factory=list)
     cursor_on_dialogs: bool = True
+    pause_windows: list[str] = field(default_factory=list)
 
     def wants_cursor(self, wins: list[WindowInfo] | None = None) -> tuple[bool, str]:
         ws = game_windows(wins)
         if not ws:
             return False, "没有可见窗口"
+        for pat in self.pause_windows:
+            hit = match_title(pat, ws, only_visible=False)
+            if hit:
+                return False, f"命中暂停窗口 {pat!r} → {hit[0].title}"
         for pat in self.cursor_windows:
             hit = match_title(pat, ws, only_visible=False)
             if hit:

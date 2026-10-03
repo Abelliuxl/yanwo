@@ -46,6 +46,9 @@ class InputDaemon(threading.Thread):
         self.ever_active = False
         self.device_name = ""
         self.enabled = True
+        self.pause_combo: list[str] = []   # 例如 ["select","third"]（Select+X）
+        self.paused = False                # 暂停时完全不注入（给 Steam 覆盖界面让路）
+        self._combo_was_down = False
         # 采样/刷新周期：5ms ≈ 200Hz。这是"光标丝滑"的关键（配合 XTest 后端）
         self.poll_s = 0.005
         self._stop = threading.Event()
@@ -56,9 +59,17 @@ class InputDaemon(threading.Thread):
             self.log.info("输入模式 -> %s", mode)
         self.mode = mode
 
+    def toggle_pause(self, why: str = "hotkey") -> bool:
+        self.paused = not self.paused
+        self.log.info("输入桥 %s（%s）", "已暂停" if self.paused else "已恢复", why)
+        self._notify_status()
+        return self.paused
+
     def status(self) -> str:
         if not self.enabled:
             return "手柄：已禁用"
+        if self.paused:
+            return f"手柄：⏸ 已暂停（{self.device_name or '无设备'}）"
         if not self.connected:
             return "手柄：未找到设备（/dev/input/js*）"
         if not self.ever_active:
@@ -78,6 +89,8 @@ class InputDaemon(threading.Thread):
 
     def _dispatch(self, intents: list[tuple[str, int]]) -> None:
         mode = self.mode
+        if self.paused:
+            return  # 暂停：一个字节都不注入（Steam 覆盖界面要用它自己那套）
         for kind, val in intents:
             if mode == MODE_OFF:
                 continue
@@ -160,6 +173,12 @@ class InputDaemon(threading.Thread):
                         self._dispatch(mapper.feed(ev))
 
                     if active is not None:
+                        # 暂停组合键（边沿触发）：Select+X 之类，切给 Steam 覆盖界面用
+                        if self.pause_combo:
+                            down = mapper.combo_down(self.pause_combo)
+                            if down and not self._combo_was_down:
+                                self.toggle_pause("组合键 " + "+".join(self.pause_combo))
+                            self._combo_was_down = down
                         self.ever_active = True
                         if not self.connected or self.device_name != f"{active.path} {active.name}":
                             self.connected = True
@@ -170,7 +189,7 @@ class InputDaemon(threading.Thread):
                         )
                         if nav:
                             self._dispatch([("nav", nav)])
-                        if self.mode in (MODE_LAUNCHER, MODE_CURSOR):
+                        if self.mode in (MODE_LAUNCHER, MODE_CURSOR) and not self.paused:
                             vx, vy = mapper.cursor_velocity()
                             if vx or vy:
                                 self.cursor.move(

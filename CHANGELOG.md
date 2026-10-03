@@ -2,6 +2,28 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [0.6.0-demo] - 2026-10-04
+
+按实机反馈第二轮修（年龄窗仍在前 + Steam 覆盖界面和光标打架）。
+
+### Fixed
+- **年龄提示仍然挡在前面**：上一次用 `lower` 压层级，X 堆叠确实变了但**gamescope 的视觉层级不跟它走**。
+  改成 `close`（发 WM_DELETE_WINDOW 让应用自己关掉这个提示），要更温和可换 `hide`。
+  配方注释里写清了为什么 `lower` 在 game mode 下没用。
+
+### Added
+- **输入桥暂停开关**：`[bridge] pause_combo`（默认 `["select","third"]` = Select+X），
+  按一次暂停（**完全不再注入**，让 Steam 覆盖界面/切窗口自己吃手柄），再按恢复；
+  Hub 底部显示 `⏸ 已暂停`
+- `[bridge] pause_windows`：命中这些标题的窗口时自动暂停（正则）
+- `BridgeGate` 支持 `pause_windows`（优先级高于 cursor_windows）
+
+### Docs
+- DEV-NOTES 17：gamescope 视觉层级 ≠ X 堆叠；DEV-NOTES 18：桥与覆盖界面打架的原因与缓解
+
+### Tests
+- 34 项（新增：组合键检测、暂停时禁止注入、pause_windows 强制关）
+
 ## [0.5.0-demo] - 2026-10-04
 
 游戏里的 UI 窗口也要能用光标（用户："登陆窗口也应该是要有模拟鼠标的，只有游戏的本体是不需要鼠标的"）。

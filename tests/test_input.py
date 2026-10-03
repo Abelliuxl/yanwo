@@ -118,6 +118,34 @@ class TestMapper(unittest.TestCase):
         self.assertEqual((evs2, len(rest2)), ([], 6), "半包要留着")
 
 
+class TestComboAndPause(unittest.TestCase):
+    def test_combo_down(self):
+        m = Mapper(Profile())
+        self.assertFalse(m.combo_down(["select", "third"]))
+        m.feed(btn(6, True))          # select
+        self.assertFalse(m.combo_down(["select", "third"]))
+        m.feed(btn(2, True))          # third (X)
+        self.assertTrue(m.combo_down(["select", "third"]))
+        m.feed(btn(2, False))
+        self.assertFalse(m.combo_down(["select", "third"]))
+
+    def test_toggle_pause_blocks_injection(self):
+        from yanwo.input.daemon import InputDaemon
+
+        calls = []
+        d = InputDaemon(on_intent=lambda k, v: calls.append(k))
+        d.cursor.click = lambda b=1: calls.append("click")  # type: ignore
+        d.set_mode("launcher")
+        d._dispatch([("confirm", 1)])
+        self.assertEqual(calls, ["click"], "正常状态下要注入")
+        self.assertTrue(d.toggle_pause("test"))
+        d._dispatch([("confirm", 1)])
+        self.assertEqual(calls, ["click"], "暂停后不能再注入")
+        self.assertFalse(d.toggle_pause("test"))
+        d._dispatch([("confirm", 1)])
+        self.assertEqual(calls, ["click", "click"], "恢复后继续注入")
+
+
 class TestDaemon(unittest.TestCase):
     def test_launcher_actions(self):
         from yanwo.input.daemon import InputDaemon
