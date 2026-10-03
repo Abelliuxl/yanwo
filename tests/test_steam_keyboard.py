@@ -1,4 +1,6 @@
 import unittest
+import io
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,6 +16,27 @@ class TestSteamKeyboard(unittest.TestCase):
             keyboard.open()
             self.assertEqual(run.call_args.args[0], ["/usr/bin/steam", keyboard.OPEN_URL])
             self.assertTrue(keyboard.requested)
+
+    def test_focused_field_returns_while_native_focus_guard_is_running(self):
+        # A guard holding the pipe open must overlap, rather than delay, opening
+        # Steam's keyboard. Its process exits after the first JSON line is ready.
+        waiting = threading.Event()
+        release = threading.Event()
+        def wait():
+            waiting.set()
+            release.wait(2)
+        process = SimpleNamespace(stdout=io.StringIO('{"x":1,"y":2,"w":30,"h":20,"mode":0}\n'),
+                                  wait=wait)
+        recipe = SimpleNamespace(steps=[SimpleNamespace(kind="wine", get=lambda _: "/wine")])
+        try:
+            with patch("yanwo.input.steam_keyboard.build_env", return_value={}), \
+                 patch("yanwo.input.steam_keyboard.subprocess.Popen", return_value=process):
+                field = SteamKeyboard().focused_edit(recipe)
+                self.assertEqual(field["w"], 30)
+                self.assertTrue(waiting.wait(1))
+                self.assertFalse(release.is_set())
+        finally:
+            release.set()
 
     def test_only_closes_keyboard_requested_by_yanwo(self):
         keyboard = SteamKeyboard()

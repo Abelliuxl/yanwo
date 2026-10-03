@@ -30,24 +30,51 @@ static void keep_edit_focus(HWND root, HWND edit) {
     if (current != target) AttachThreadInput(current, target, FALSE);
 }
 
-static void guard_edit(HWND root, HWND edit) {
+static HWND restore_edit(HWND root, DWORD tid, int x, int y) {
+    DWORD_PTR result;
+    /* MPAY destroys its transient EditWnd on blur. Re-enter only the recorded
+     * input row using window-local messages; do not move/click the Steam pointer.
+     * MPAY hit testing expects physical client coordinates, even though its
+     * window reports an unaware DPI context. */
+    LPARAM pos = MAKELPARAM(x, y);
+    if (!SendMessageTimeoutW(root, WM_LBUTTONDOWN, MK_LBUTTON, pos,
+                            SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &result)) return NULL;
+    SendMessageTimeoutW(root, WM_LBUTTONUP, 0, pos,
+                       SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &result);
+    GUITHREADINFO g = {0}; g.cbSize = sizeof(g);
+    if (!GetGUIThreadInfo(tid, &g) || !IsChild(root, g.hwndFocus)) return NULL;
+    char cls[128] = {0}; GetClassNameA(g.hwndFocus, cls, sizeof(cls));
+    if (_strnicmp(cls, "Edit", 4) && _strnicmp(cls, "RichEdit", 8)) return NULL;
+    return g.hwndFocus;
+}
+
+static void guard_edit(HWND root, HWND edit, int x, int y) {
     DWORD pid = 0, edit_pid = 0;
     DWORD tid = GetWindowThreadProcessId(root, &pid);
     GetWindowThreadProcessId(edit, &edit_pid);
-    if (!pid || pid != edit_pid || !IsChild(root, edit)) return;
+    if (!pid || (IsWindow(edit) && (pid != edit_pid || !IsChild(root, edit)))) return;
     char cls[128] = {0};
     GetClassNameA(root, cls, sizeof(cls));
     if (strcmp(cls, "MPAY_LOGIN")) return;
     login_pid = pid;
     /* Keep the child edit, not just its X11 top-level, through the opening animation. */
-    for (int i = 0; i < 40 && IsWindow(edit) && IsWindowEnabled(root); ++i) {
+    ULONGLONG deadline = GetTickCount64() + 1800;
+    while (GetTickCount64() < deadline && IsWindow(root) && IsWindowEnabled(root)) {
         GUITHREADINFO info = {0}; info.cbSize = sizeof(info);
         if (GetGUIThreadInfo(tid, &info) && info.hwndFocus != edit) {
             char focused_class[128] = {0};
             GetClassNameA(info.hwndFocus, focused_class, sizeof(focused_class));
             /* Respect an intentional move to another editable field. */
             if (!_strnicmp(focused_class, "Edit", 4) || !_strnicmp(focused_class, "RichEdit", 8)) break;
+            /* Do not steal focus from a real verification/consent dialog. */
+            if (info.hwndFocus && info.hwndFocus != root &&
+                GetAncestor(info.hwndFocus, GA_ROOT) != root &&
+                strcmp(focused_class, "MPAY_AGE_TIPS")) break;
             EnumWindows(suspend_age, 0);
+            if (!IsWindow(edit)) {
+                edit = restore_edit(root, tid, x, y);
+                if (!edit) { Sleep(100); continue; }
+            }
             keep_edit_focus(root, edit);
         }
         Sleep(50);
@@ -55,22 +82,32 @@ static void guard_edit(HWND root, HWND edit) {
 }
 
 static void start_guard(HWND root, HWND edit) {
+    RECT r; GetWindowRect(edit, &r);
+    POINT point = {(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+    ScreenToClient(root, &point);
     wchar_t exe[MAX_PATH], cmd[MAX_PATH + 128];
     GetModuleFileNameW(NULL, exe, MAX_PATH);
-    _snwprintf(cmd, MAX_PATH + 128, L"\"%ls\" --keep-edit %llu %llu", exe,
-        (unsigned long long)(ULONG_PTR)root, (unsigned long long)(ULONG_PTR)edit);
+    _snwprintf(cmd, MAX_PATH + 128, L"\"%ls\" --keep-edit %llu %llu %ld %ld", exe,
+        (unsigned long long)(ULONG_PTR)root, (unsigned long long)(ULONG_PTR)edit, point.x, point.y);
     STARTUPINFOW si = {0}; si.cb = sizeof(si);
+    SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE};
+    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, NULL);
+    if (nul == INVALID_HANDLE_VALUE) return;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = si.hStdOutput = si.hStdError = nul;
     PROCESS_INFORMATION pi = {0};
-    if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+    if (CreateProcessW(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
         CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
     }
+    CloseHandle(nul);
 }
 
 int main(int argc, char **argv) {
     SetProcessDPIAware();
-    if (argc == 4 && !strcmp(argv[1], "--keep-edit")) {
+    if (argc == 6 && !strcmp(argv[1], "--keep-edit")) {
         guard_edit((HWND)(ULONG_PTR)strtoull(argv[2], NULL, 10),
-                   (HWND)(ULONG_PTR)strtoull(argv[3], NULL, 10));
+                   (HWND)(ULONG_PTR)strtoull(argv[3], NULL, 10), atoi(argv[4]), atoi(argv[5]));
         return 0;
     }
     GUITHREADINFO g = {0};

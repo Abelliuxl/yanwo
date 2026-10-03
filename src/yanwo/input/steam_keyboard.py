@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import ctypes
 import json
+import queue
+import threading
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,12 +40,29 @@ class SteamKeyboard:
         if step is None:
             return None
         helper = Path(__file__).with_name("native") / "focused-edit.exe"
-        result = subprocess.run([str(step.get("wine")), str(helper)],
-                                env=build_env(step, recipe), capture_output=True,
-                                text=True, timeout=3)
-        if result.returncode:
+        # Wine keeps the guard child's inherited Unix pipe open. Read the JSON
+        # line immediately so opening the keyboard overlaps the live focus guard.
+        process = subprocess.Popen([str(step.get("wine")), str(helper)],
+                                   env=build_env(step, recipe), stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, text=True)
+        result = queue.Queue(maxsize=1)
+
+        def collect():
+            try:
+                result.put(process.stdout.readline())
+                process.wait()
+            finally:
+                process.stdout.close()
+
+        threading.Thread(target=collect, daemon=True).start()
+        try:
+            field = json.loads(result.get(timeout=3))
+        except (queue.Empty, ValueError):
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
             return None
-        field = json.loads(result.stdout)
         if not field or field["w"] <= 0 or field["h"] <= 0:
             return None
         return field
