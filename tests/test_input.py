@@ -173,6 +173,7 @@ class TestComboAndPause(unittest.TestCase):
 
     def test_toggle_pause_blocks_injection(self):
         from yanwo.input.daemon import InputDaemon
+        from unittest.mock import patch
 
         calls = []
         d = InputDaemon(on_intent=lambda k, v: calls.append(k))
@@ -184,7 +185,8 @@ class TestComboAndPause(unittest.TestCase):
         d._dispatch([("confirm", 1)])
         self.assertEqual(calls, ["click", "pointer_click"], "暂停后不能再注入")
         self.assertFalse(d.toggle_pause("test"))
-        d._dispatch([("confirm", 1)])
+        with patch("yanwo.input.daemon.time.monotonic", return_value=10**10):
+            d._dispatch([("confirm", 1)])
         self.assertEqual(calls, ["click", "pointer_click", "click", "pointer_click"], "恢复后继续注入")
 
 

@@ -152,3 +152,10 @@ pause_windows = []                      # 出现这些标题的窗口时自动�
 在该配方的 Wine prefix 内启动会话守卫，先禁用窗口、隐藏，再向窗口自身 GUI 线程发送
 WM_CLOSE；重建后继续关闭，不受 watch_seconds 限制。守卫使用独立进程组，退出会话时
 只结束自己的辅助进程。不要把账号登录、协议确认或验证码模态窗口配置到这里。
+
+
+`[windows].hide_classes`：保留指定 Win32 窗口对象，但持续禁用和隐藏，适合 SDK 内部
+仍引用的透明阴影窗（如 DuiShadowWnd）。它不会向窗口发送 WM_CLOSE。与
+suppress_classes 一样，仅在配方的 Wine prefix 内执行，守卫随会话结束而回收。
+显示窗口指定值被 Steam 清零时，窗口规则额外监听 X11 属性变动即时修复；验证窗口
+是否仍可见时使用它所属的游戏 XWayland，控制 root 可以属于另一台 X server。

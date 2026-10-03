@@ -21,10 +21,12 @@ class SteamKeyboard:
 
     def __init__(self):
         self._conn = None
+        self.control_display = None
         self._input_atom = 0
         self._requested_until = 0.0
         self._retry_at = 0.0
         self.requested = False
+        self.focus_mode = 0
 
     def _command(self, url):
         steam = shutil.which("steam")
@@ -36,13 +38,21 @@ class SteamKeyboard:
 
     def focused_edit(self, recipe):
         """检测点击后的编辑控件，准备其输入焦点；不读取文本内容。"""
+        return self._field_helper(recipe)
+
+    def click_field(self, recipe, point):
+        # Steam owns pointer events while its keyboard is open. Deliver this
+        # explicit field re-selection to MPAY itself, never to the overlay.
+        return self._field_helper(recipe, ["--click-field", str(int(point[0])), str(int(point[1]))])
+
+    def _field_helper(self, recipe, args=()):
         step = next((s for s in recipe.steps if s.kind == "wine"), None)
         if step is None:
             return None
         helper = Path(__file__).with_name("native") / "focused-edit.exe"
         # Wine keeps the guard child's inherited Unix pipe open. Read the JSON
         # line immediately so opening the keyboard overlaps the live focus guard.
-        process = subprocess.Popen([str(step.get("wine")), str(helper)],
+        process = subprocess.Popen([str(step.get("wine")), str(helper), *args],
                                    env=build_env(step, recipe), stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, text=True)
         result = queue.Queue(maxsize=1)
@@ -72,6 +82,10 @@ class SteamKeyboard:
         if field:
             url = ("steam://open/keyboard?XPosition={x}&YPosition={y}"
                    "&Width={w}&Height={h}&Mode={mode}").format(**field)
+        # Clicking a field again while the keyboard is open only restores that
+        # field. Reopening Steam's overlay causes another focus transition.
+        if self.requested:
+            return
         self._command(url)
         self.requested = True
         self._requested_until = time.monotonic() + 3.0
@@ -83,24 +97,31 @@ class SteamKeyboard:
         self._requested_until = 0.0
 
     def input_taken(self):
-        """Steam keyboard/菜单接管输入时，让燕窝完全停止鼠标和按键注入。"""
+        """读取 Steam 输入模式：2 为浮动键盘，其他非零值为菜单/覆盖界面。"""
         now = time.monotonic()
         if self._conn is None and now >= self._retry_at:
             self._retry_at = now + 10.0
             control = GamescopeFocus()
             if control.discover():
+                self.control_display = control.display
                 self._conn = _X(control.display)
                 self._input_atom = self._conn.lib.XInternAtom(
                     ctypes.c_void_p(self._conn.dpy), b"STEAM_INPUT_FOCUS", 0)
-        active = False
+        mode = 0
         if self._conn:
             for win in self._conn.list():
                 if not win.mapped:
                     continue
                 raw = self._conn._raw_prop(win.wid, self._input_atom)
-                if raw and int.from_bytes(raw[:4], "little"):
-                    active = True
-                    break
+                value = int.from_bytes(raw[:4], "little") if raw else 0
+                if value:
+                    # A full Steam menu takes priority over the floating keyboard.
+                    if value != 2:
+                        mode = value
+                        break
+                    mode = 2
+        self.focus_mode = mode
+        active = bool(mode)
         # 给 Steam 响应请求的时间；键盘关闭后由输入焦点状态自动恢复。
         if active:
             self._requested_until = 0.0

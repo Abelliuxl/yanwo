@@ -46,6 +46,15 @@ class XTestCursor:
         self._xtst.XTestFakeKeyEvent.argtypes = [
             ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong,
         ]
+        self._x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        self._x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        self._x11.XQueryPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p,
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        self._x11.XGetInputFocus.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        self._x11.XGetGeometry.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p,
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        self._xtst.XTestFakeMotionEvent.argtypes = [ctypes.c_void_p, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
         self._dpy = self._x11.XOpenDisplay(display.encode() if display else None)
         if not self._dpy:
             raise RuntimeError("XOpenDisplay 失败")
@@ -66,6 +75,35 @@ class XTestCursor:
                 ctypes.c_void_p(self._dpy), ix, iy, 0
             )
             self._flush()
+
+    def position(self) -> tuple[int, int]:
+        root = self._x11.XDefaultRootWindow(self._dpy)
+        a, b = ctypes.c_ulong(), ctypes.c_ulong()
+        rx, ry, x, y = (ctypes.c_int() for _ in range(4))
+        mask = ctypes.c_uint()
+        with self._lock:
+            self._x11.XQueryPointer(self._dpy, root, ctypes.byref(a), ctypes.byref(b),
+                ctypes.byref(rx), ctypes.byref(ry), ctypes.byref(x), ctypes.byref(y), ctypes.byref(mask))
+        return rx.value, ry.value
+
+    def move_to(self, x: float, y: float) -> None:
+        with self._lock:
+            self._xtst.XTestFakeMotionEvent(self._dpy, -1, int(x), int(y), 0)
+            self._flush()
+
+    def geometry(self, focused=False):
+        wid = self._x11.XDefaultRootWindow(self._dpy)
+        if focused:
+            focus, revert = ctypes.c_ulong(), ctypes.c_int()
+            self._x11.XGetInputFocus(self._dpy, ctypes.byref(focus), ctypes.byref(revert))
+            wid = focus.value
+        root = ctypes.c_ulong()
+        x, y = ctypes.c_int(), ctypes.c_int()
+        w, h, border, depth = (ctypes.c_uint() for _ in range(4))
+        with self._lock:
+            ok = self._x11.XGetGeometry(self._dpy, wid, ctypes.byref(root), ctypes.byref(x),
+                ctypes.byref(y), ctypes.byref(w), ctypes.byref(h), ctypes.byref(border), ctypes.byref(depth))
+        return (x.value, y.value, w.value, h.value) if ok else None
 
     def click(self, button: int = 1) -> None:
         with self._lock:
@@ -89,6 +127,38 @@ class XTestCursor:
         btn = 4 if direction < 0 else 5
         for _ in range(max(1, times)):
             self.click(btn)
+
+
+class KeyboardPointer:
+    """Mirror the game pointer into Steam's visible cursor during its keyboard."""
+    def __init__(self, game, display):
+        self.game = game
+        self.steam = XTestCursor(display)
+        self.transform = None
+
+    def move(self, dx, dy):
+        geom, screen = self.game.geometry(focused=True), self.steam.geometry()
+        if not geom or not screen or min(geom[2:]) <= 0:
+            self.game.move(dx, dy)
+            return
+        gx, gy, width, height = geom
+        scale = min(screen[2] / width, screen[3] / height)
+        left, top = (screen[2] - width * scale) / 2, (screen[3] - height * scale) / 2
+        transform = (gx, gy, width, height, scale, left, top)
+        if self.transform != transform:
+            self.transform = transform
+            x, y = self.game.position()
+            self.steam.move_to(left + (x - gx) * scale, top + (y - gy) * scale)
+        self.steam.move(dx, dy)
+        x, y = self.steam.position()
+        self.game.move_to(gx + (x - left) / scale, gy + (y - top) / scale)
+
+    def click_point(self):
+        if self.transform is None:
+            return None
+        gx, gy, width, height, scale, left, top = self.transform
+        x, y = self.steam.position()
+        return (x - left) / scale, (y - top) / scale
 
 
 class XdotoolCursor:

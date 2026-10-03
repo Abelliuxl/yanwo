@@ -17,6 +17,7 @@ class GamescopeFocus:
         self.types: dict[int, str] = {}
         self.local_display = None
         self.local_previous = 0
+        self._watch = None
 
     def _run(self, display, args):
         result = subprocess.run(["xprop", "-display", display, *args],
@@ -77,7 +78,18 @@ class GamescopeFocus:
             self._set(target)
         self.target = target
 
+    def start_watch(self):
+        if self._watch is not None or not self.target or not self.display:
+            return
+        from .focus_watch import BaseLayerWatch
+        displays = list(dict.fromkeys(d for d in (self.display, self.local_display) if d))
+        self._watch = BaseLayerWatch(self, displays)
+        self._watch.start()
+
     def release(self):
+        if self._watch is not None:
+            self._watch.stop()
+            self._watch = None
         if self.local_display is not None:
             if self._get(self.local_display, self.PROPERTY) == self.target:
                 self._run(self.local_display, ["-root", "-f", self.PROPERTY, "32c",

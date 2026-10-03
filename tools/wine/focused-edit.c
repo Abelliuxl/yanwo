@@ -7,7 +7,7 @@
 #include <stdlib.h>
 static DWORD login_pid;
 
-static void close_auxiliary(HWND h) {
+static void hide_auxiliary(HWND h) {
     /* Unmapping alone leaves a live Wine window that the SDK can show again.
      * Disable first to remove it from focus selection, then close on its own
      * GUI thread. Never use DestroyWindow across process boundaries. */
@@ -15,8 +15,19 @@ static void close_auxiliary(HWND h) {
     SetWindowLongPtr(h, GWL_EXSTYLE,
         GetWindowLongPtr(h, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
     ShowWindow(h, SW_HIDE);
+}
+
+static void close_auxiliary(HWND h) {
+    hide_auxiliary(h);
     DWORD_PTR result;
     SendMessageTimeoutW(h, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &result);
+}
+
+static BOOL CALLBACK hide_class(HWND h, LPARAM wanted) {
+    char cls[128] = {0};
+    GetClassNameA(h, cls, sizeof(cls));
+    if (!strcmp(cls, (const char *)wanted)) hide_auxiliary(h);
+    return TRUE;
 }
 
 static BOOL CALLBACK suppress_class(HWND h, LPARAM wanted) {
@@ -120,10 +131,10 @@ static void start_guard(HWND root, HWND edit) {
 
 int main(int argc, char **argv) {
     SetProcessDPIAware();
-    if (argc == 3 && !strcmp(argv[1], "--suppress-window")) {
+    if (argc == 3 && (!strcmp(argv[1], "--suppress-window") || !strcmp(argv[1], "--hide-window"))) {
         if (!argv[2][0]) return 1;
         for (;;) {
-            EnumWindows(suppress_class, (LPARAM)argv[2]);
+            EnumWindows(!strcmp(argv[1], "--hide-window") ? hide_class : suppress_class, (LPARAM)argv[2]);
             Sleep(25);
         }
     }
@@ -135,6 +146,25 @@ int main(int argc, char **argv) {
     GUITHREADINFO g = {0};
     g.cbSize = sizeof(g);
     if (!GetGUIThreadInfo(0, &g) || !g.hwndFocus) { puts("null"); return 0; }
+    BOOL manual_click = argc == 4 && !strcmp(argv[1], "--click-field");
+    POINT clicked = {0, 0};
+    if (manual_click) {
+        HWND root = GetAncestor(g.hwndFocus, GA_ROOT);
+        char root_cls[128] = {0}; GetClassNameA(root, root_cls, sizeof(root_cls));
+        RECT bounds; GetClientRect(root, &bounds);
+        clicked.x = atoi(argv[2]); clicked.y = atoi(argv[3]);
+        /* Only the account/password/verification input rows. Never click the
+         * submit/consent controls behind Steam's keyboard. */
+        if (strcmp(root_cls, "MPAY_LOGIN") || !IsWindowEnabled(root) ||
+            clicked.x < bounds.right * .08 || clicked.x > bounds.right * .9 ||
+            clicked.y < bounds.bottom * .32 || clicked.y > bounds.bottom * .56) {
+            puts("null"); return 0;
+        }
+        HWND edit = restore_edit(root, GetWindowThreadProcessId(root, NULL), clicked.x, clicked.y);
+        if (!edit) { puts("null"); return 0; }
+        g.hwndFocus = edit;
+        ClientToScreen(root, &clicked);
+    }
     char cls[128] = {0};
     GetClassNameA(g.hwndFocus, cls, sizeof(cls));
     if (_strnicmp(cls, "Edit", 4) && _strnicmp(cls, "RichEdit", 8)) { puts("null"); return 0; }
@@ -153,7 +183,7 @@ int main(int argc, char **argv) {
         LONG pad = (r.bottom - r.top) * 2 / 3;
         InflateRect(&r, pad, pad);
     }
-    POINT mouse; GetCursorPos(&mouse);
+    POINT mouse; if (manual_click) mouse = clicked; else GetCursorPos(&mouse);
     if (!PtInRect(&r, mouse)) { puts("null"); return 0; }
     if (!strcmp(root_class, "MPAY_LOGIN")) {
         GetWindowThreadProcessId(root, &login_pid);

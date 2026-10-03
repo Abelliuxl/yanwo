@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Callable
 
-from .cursor import make_cursor
+from .cursor import make_cursor, XTestCursor, KeyboardPointer
 from .jsdevice import open_all, read_many
 from .mapper import Mapper
 from .profile import Profile, default_profile_path
@@ -49,6 +49,12 @@ class InputDaemon(threading.Thread):
         self.pause_combo: list[str] = []   # 例如 ["select","third"]（Select+X）
         self.paused = False                # 暂停时完全不注入（给 Steam 覆盖界面让路）
         self.keyboard_active = False      # Steam 原生键盘/菜单接管输入，独立于手动暂停
+        self.keyboard_cursor_active = False  # 浮动键盘期间允许右摇杆和 A 重选输入框
+        self.keyboard_display = None
+        self._keyboard_pointer = None
+        self._keyboard_pointer_moved = False
+        self._last_button_action: dict[str, float] = {}
+        self.button_debounce_s = 0.25
         self._combo_was_down = False
         # 采样/刷新周期：5ms ≈ 200Hz。这是"光标丝滑"的关键（配合 XTest 后端）
         self.poll_s = 0.005
@@ -92,9 +98,23 @@ class InputDaemon(threading.Thread):
 
     def _dispatch(self, intents: list[tuple[str, int]]) -> None:
         mode = self.mode
-        if self.paused or self.keyboard_active:
-            return  # 暂停：一个字节都不注入（Steam 覆盖界面要用它自己那套）
+        if self.paused:
+            return
+        if self.keyboard_active and not self.keyboard_cursor_active:
+            return  # Steam 全屏菜单仍完全让出输入。
         for kind, val in intents:
+            if self.keyboard_active and (mode not in (MODE_LAUNCHER, MODE_CURSOR) or kind != "confirm"):
+                continue  # 键盘期间只放行重选输入框的 A；B/X/Start 等由 Steam 处理。
+            if self.keyboard_active and not self._keyboard_pointer_moved:
+                continue  # 在键盘上输入字符的 A 不要再点击原输入框。
+            if kind in ("confirm", "back", "third", "fourth", "start", "select"):
+                now = time.monotonic()
+                previous = self._last_button_action.get(kind)
+                if previous is not None and now - previous < self.button_debounce_s:
+                    continue
+                self._last_button_action[kind] = now
+            if self.keyboard_active:
+                self._keyboard_pointer_moved = False
             if mode == MODE_OFF:
                 continue
             if mode == MODE_HUB:
@@ -108,8 +128,13 @@ class InputDaemon(threading.Thread):
 
     def _launcher_action(self, kind: str, val: int) -> None:
         if kind == "confirm":
+            if self.keyboard_active and self._keyboard_pointer and self.on_intent:
+                point = self._keyboard_pointer.click_point()
+                if point is not None:
+                    self.on_intent("keyboard_pointer_click", point)
+                return
             self.cursor.click(1)
-            if self.on_intent:
+            if self.on_intent and not self.keyboard_active:
                 self.on_intent("pointer_click", 1)
         elif kind == "back":
             self.cursor.click(3)
@@ -119,6 +144,30 @@ class InputDaemon(threading.Thread):
             self.cursor.key("Return")
         elif kind == "nav":
             self.cursor.key("Up" if val < 0 else "Down")
+
+    def _move_pointer(self, mapper: Mapper, dt: float) -> None:
+        if not self.keyboard_active:
+            self._keyboard_pointer_moved = False
+            if self._keyboard_pointer:
+                self._keyboard_pointer.transform = None
+        if self.mode not in (MODE_LAUNCHER, MODE_CURSOR) or self.paused:
+            return
+        if self.keyboard_active and not self.keyboard_cursor_active:
+            return
+        vx, vy = mapper.cursor_velocity()
+        if vx or vy:
+            cursor = self.cursor
+            if self.keyboard_active:
+                self._keyboard_pointer_moved = True
+                if self.keyboard_display and isinstance(self.cursor, XTestCursor):
+                    if self._keyboard_pointer is None:
+                        self._keyboard_pointer = KeyboardPointer(self.cursor, self.keyboard_display)
+                    cursor = self._keyboard_pointer
+            elif self._keyboard_pointer:
+                self._keyboard_pointer.transform = None
+                self._keyboard_pointer_moved = False
+            cursor.move(vx * self.profile.speed_px_s * dt,
+                        vy * self.profile.speed_px_s * dt)
 
     def run(self) -> None:
         """同时监听所有 js 设备，只转发"当前活跃"那一个的事件。
@@ -194,13 +243,7 @@ class InputDaemon(threading.Thread):
                         )
                         if nav:
                             self._dispatch([("nav", nav)])
-                        if self.mode in (MODE_LAUNCHER, MODE_CURSOR) and not self.paused and not self.keyboard_active:
-                            vx, vy = mapper.cursor_velocity()
-                            if vx or vy:
-                                self.cursor.move(
-                                    vx * self.profile.speed_px_s * dt,
-                                    vy * self.profile.speed_px_s * dt,
-                                )
+                        self._move_pointer(mapper, dt)
             finally:
                 for d in devs:
                     d.close()

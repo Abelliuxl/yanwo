@@ -97,6 +97,7 @@ class _X:
     def __init__(self, display: str | None = None) -> None:
         self.lib = ctypes.CDLL("libX11.so.6")
         L = self.lib
+        L.XInitThreads()
         L.XOpenDisplay.restype = ctypes.c_void_p
         L.XOpenDisplay.argtypes = [ctypes.c_char_p]
         L.XDefaultRootWindow.restype = ctypes.c_ulong
@@ -684,6 +685,7 @@ class WindowRules:
             while not self._stop.is_set():
                 try:
                     self.sync_gamescope()  # 登录可晚于 watch_seconds；全程维护并自动释放。
+                    self._gamescope.start_watch()
                     self._guard_focus()
                     if time.time() < deadline:
                         self.tick()

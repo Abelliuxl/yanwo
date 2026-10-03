@@ -187,20 +187,21 @@ class Session:
         self._input("cursor" if want_cursor else "off")
 
     def _start_window_blockers(self) -> None:
-        classes = self.recipe.windows.get("suppress_classes", [])
+        classes = [("--suppress-window", cls) for cls in self.recipe.windows.get("suppress_classes", [])]
+        classes += [("--hide-window", cls) for cls in self.recipe.windows.get("hide_classes", [])]
         step = next((s for s in self.recipe.steps if s.kind == "wine"), None)
         if not classes or step is None or self._window_blockers:
             return
         helper = Path(__file__).resolve().parents[1] / "input/native/focused-edit.exe"
-        for cls in classes:
+        for operation, cls in classes:
             process = subprocess.Popen(
-                [str(step.get("wine")), str(helper), "--suppress-window", cls],
+                [str(step.get("wine")), str(helper), operation, cls],
                 env=runner.build_env(step, self.recipe), stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
             self._window_blockers.append(process)
-            self.log.info("会话内禁用并关闭辅助窗口类 %s", cls)
+            self.log.info("会话辅助窗口 %s: %s", operation, cls)
 
     def _stop_window_rules(self) -> None:
         for process in self._window_blockers:

@@ -67,8 +67,21 @@ class HubApp:
     # ---------- 手柄 ----------
     def _on_intent(self, kind: str, val: int) -> None:
         ui = self.ui
+        if kind == "keyboard_pointer_click":
+            if self.session and not self._quit:
+                def select_field():
+                    if self.session and not self._quit:
+                        try:
+                            self.steam_keyboard.click_field(self.session.recipe, val)
+                        except Exception:
+                            self.log.exception("键盘期间重新选择输入框失败")
+                if hasattr(ui, "_post"):
+                    ui._post(select_field)
+                else:
+                    select_field()
+            return
         if kind == "pointer_click":
-            if self._keyboard_pending or self._quit:
+            if self._keyboard_pending or self._quit or self.input.keyboard_active:
                 return
             self._keyboard_pending = True
             if hasattr(ui, "_post"):
@@ -107,10 +120,17 @@ class HubApp:
         finally:
             self._keyboard_pending = False
             try:
-                self.input.keyboard_active = self.steam_keyboard.input_taken()
+                self._sync_steam_input()
             except Exception as error:
                 self.log.warning("读取 Steam 输入状态失败: %s", error)
                 self.input.keyboard_active = False
+                self.input.keyboard_cursor_active = False
+
+    def _sync_steam_input(self) -> None:
+        active = self.input.mode in ("launcher", "cursor") and self.steam_keyboard.input_taken()
+        self.input.keyboard_display = self.steam_keyboard.control_display
+        self.input.keyboard_active = bool(active)
+        self.input.keyboard_cursor_active = bool(active and self.steam_keyboard.focus_mode == 2)
 
     def _close_keyboard(self) -> None:
         try:
@@ -145,8 +165,7 @@ class HubApp:
             return
         if not self._keyboard_pending:
             try:
-                self.input.keyboard_active = (self.input.mode in ("launcher", "cursor")
-                                               and self.steam_keyboard.input_taken())
+                self._sync_steam_input()
             except Exception:
                 self.log.exception("检测 Steam 输入状态失败")
         root = getattr(self.ui, "root", None)

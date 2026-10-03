@@ -80,6 +80,8 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 [windows]
 # 仅关闭年龄信息卡，真实登录/验证弹窗继续由窗口规则跟随。
 suppress_classes = ["MPAY_AGE_TIPS"]
+# 透明边框阴影不参与合成/输入，保留 SDK 对象，禁止它显示和激活。
+hide_classes = ["DuiShadowWnd"]
 enabled = true
 watch_seconds = 180
 
