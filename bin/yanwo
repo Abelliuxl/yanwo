@@ -7,4 +7,4 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
 
 # Tk/Qt 需要图形环境；桌面会话与 Steam/gamescope 会自带 DISPLAY/XAUTHORITY。
-exec /usr/bin/python3 -m yanwo "$@"
+exec /usr/bin/python3 -u -m yanwo "$@"
