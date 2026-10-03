@@ -24,8 +24,10 @@ def axis(n: int, v: int) -> RawEvent:
 class TestProfile(unittest.TestCase):
     def test_defaults_match_xbox(self):
         p = Profile()
-        self.assertEqual((p.axis_move_x, p.axis_move_y), (3, 4))
+        self.assertEqual((p.axis_move_x, p.axis_move_y), (0, 1), "左摇杆=主光标轴")
+        self.assertEqual((p.axis_move_x2, p.axis_move_y2), (3, 4), "右摇杆=副光标轴")
         self.assertEqual((p.btn_confirm, p.btn_back), (0, 1))
+        self.assertEqual((p.axis_hat_x, p.axis_hat_y), (6, 7))
 
     def test_roundtrip(self):
         p = Profile()
@@ -74,6 +76,23 @@ class TestMapper(unittest.TestCase):
         self.assertEqual(self.m.nav_step(), 0)
         self.m.feed(axis(self.p.axis_hat_y, 32767))
         self.assertEqual(self.m.nav_step(), 1)
+
+    def test_both_sticks_drive_cursor(self):
+        self.m.feed(axis(self.p.axis_move_x, 32767))
+        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "左摇杆要能移光标")
+        self.m.feed(axis(self.p.axis_move_x, 0))
+        self.m.feed(axis(self.p.axis_move_x2, 32767))
+        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "右摇杆也要能移光标")
+
+    def test_left_stick_nav_can_be_disabled(self):
+        self.m.feed(axis(self.p.axis_move_y, 32767))
+        self.assertEqual(self.m.nav_step(allow_left_stick=True), 1, "Hub 里左摇杆可导航")
+        self.m.feed(axis(self.p.axis_move_y, 0))
+        self.m.feed(axis(self.p.axis_move_y, 32767))
+        self.assertEqual(
+            self.m.nav_step(allow_left_stick=False), 0,
+            "启动器阶段左摇杆是移动光标，不该触发方向键",
+        )
 
     def test_nav_repeat_disabled(self):
         self.p.nav_repeat_ms = 0

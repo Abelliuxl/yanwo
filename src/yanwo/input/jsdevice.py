@@ -86,16 +86,17 @@ class JsDevice:
     def fileno(self) -> int:
         return self.fd
 
-    def read(self, timeout: float = 0.05) -> list[RawEvent]:
-        """等 timeout 秒；有事件就全部读出来返回。"""
+    def read(self, timeout: float = 0.0) -> list[RawEvent]:
+        """等 timeout 秒（0 = 不等，只取已就绪的）；有事件就全部读出来返回。"""
         if self.fd < 0:
             return []
-        try:
-            ready, _, _ = select.select([self.fd], [], [], timeout)
-        except (OSError, ValueError):
-            return []
-        if not ready:
-            return []
+        if timeout > 0:
+            try:
+                ready, _, _ = select.select([self.fd], [], [], timeout)
+            except (OSError, ValueError):
+                return []
+            if not ready:
+                return []
         evs: list[RawEvent] = []
         while True:
             try:
@@ -112,6 +113,28 @@ class JsDevice:
             if len(chunk) < EVENT_SIZE * 32:
                 break
         return evs
+
+
+def read_many(devs: list["JsDevice"], timeout: float = 0.005) -> list[tuple["JsDevice", RawEvent]]:
+    """一次 select 覆盖所有设备，返回 (设备, 事件) 列表。
+
+    关键：不要对每个设备各 select 一次（4 个设备 × 20ms = 80ms 一轮，
+    光标就会一顿一顿的）。
+    """
+    fds = [d.fileno() for d in devs if d.fd >= 0]
+    if not fds:
+        return []
+    try:
+        ready, _, _ = select.select(fds, [], [], timeout)
+    except (OSError, ValueError):
+        return []
+    out: list[tuple[JsDevice, RawEvent]] = []
+    for d in devs:
+        if d.fd < 0 or d.fileno() not in ready:
+            continue
+        for ev in d.read(0):
+            out.append((d, ev))
+    return out
 
 
 def open_all() -> list[JsDevice]:

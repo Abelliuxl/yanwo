@@ -74,26 +74,38 @@ class Mapper:
         return s if v > 0 else -s
 
     def cursor_velocity(self) -> tuple[float, float]:
-        """归一化速度 (-1..1)，带死区与轻微加速曲线。"""
-        nx = self._norm(self.axes.get(self.p.axis_move_x, 0))
-        ny = self._norm(self.axes.get(self.p.axis_move_y, 0))
-        mag = max(abs(nx), abs(ny))
-        if mag == 0.0:
+        """归一化速度 (-1..1)。左右摇杆都认，谁推得多用谁（左摇杆为主）。"""
+        best = (0.0, 0.0)
+        best_mag = 0.0
+        for ax, ay in (
+            (self.p.axis_move_x, self.p.axis_move_y),      # 左摇杆（主）
+            (self.p.axis_move_x2, self.p.axis_move_y2),    # 右摇杆（副）
+        ):
+            nx = self._norm(self.axes.get(ax, 0))
+            ny = self._norm(self.axes.get(ay, 0))
+            mag = max(abs(nx), abs(ny))
+            if mag > best_mag:
+                best_mag = mag
+                best = (nx, ny)
+        if best_mag == 0.0:
             return 0.0, 0.0
-        f = self.p.accel + (1.0 - self.p.accel) * mag
-        return nx * f, ny * f
+        f = self.p.accel + (1.0 - self.p.accel) * best_mag
+        return best[0] * f, best[1] * f
 
     # ---------- 十字键导航（带按住重复） ----------
-    def nav_step(self) -> int:
-        """返回 -1/0/+1（上/不动/下），按住会按 nav_repeat_ms 重复。"""
+    def nav_step(self, allow_left_stick: bool = True) -> int:
+        """返回 -1/0/+1（上/不动/下），按住按 nav_repeat_ms 重复。
+
+        allow_left_stick：Hub 菜单里允许左摇杆导航；官方启动器阶段要关掉
+        （那时左摇杆是"移光标"，否则一边移一边触发方向键）。
+        """
         want = 0
         if self._hat_y <= -16000:
             want = -1
         elif self._hat_y >= 16000:
             want = 1
-        # 没有十字键时，用左摇杆（轴 0/1）也可导航
-        if want == 0:
-            ly = self.axes.get(1, 0)
+        if want == 0 and allow_left_stick:
+            ly = self.axes.get(self.p.axis_move_y, 0)
             if ly <= -24000:
                 want = -1
             elif ly >= 24000:

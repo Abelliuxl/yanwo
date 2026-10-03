@@ -6,13 +6,15 @@
 name = "xbox360"
 
 [axes]
-move_x = 3      # 右摇杆 X → 鼠标左右
-move_y = 4      # 右摇杆 Y → 鼠标上下
-hat_x = 6       # 十字键 X
+move_x = 0      # 左摇杆 X → 光标左右（主）
+move_y = 1      # 左摇杆 Y → 光标上下（主）
+move_x2 = 3     # 右摇杆 X → 光标左右（副，也认）
+move_y2 = 4     # 右摇杆 Y → 光标上下（副，也认）
+hat_x = 6       # 十字键 X（Hub 里选择 / 启动器里方向键）
 hat_y = 7       # 十字键 Y
 
 [buttons]
-confirm = 0     # A：Hub 里确认 / 启动器里左键
+confirm = 0     # A：Hub 里确认 / 启动器里左键（一般手柄都是 A 确认）
 back = 1        # B：Hub 里退出 / 启动器里右键
 third = 2       # X：启动器里按 Esc
 fourth = 3      # Y
@@ -21,6 +23,6 @@ select = 6      # Back/Select
 
 [feel]
 deadzone = 6000       # 摇杆死区（满量程 32767）
-speed_px_s = 1300     # 满推时每秒移动的像素
+speed_px_s = 2200     # 满推时每秒移动的像素（4K 屏不用太慢）
 accel = 0.35          # 轻推时的慢速比例
 nav_repeat_ms = 320   # 十字键按住时的重复间隔

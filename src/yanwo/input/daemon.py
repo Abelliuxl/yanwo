@@ -13,7 +13,7 @@ import time
 from typing import Callable
 
 from .cursor import make_cursor
-from .jsdevice import open_all, pick_device
+from .jsdevice import open_all, read_many
 from .mapper import Mapper
 from .profile import Profile, default_profile_path
 
@@ -44,6 +44,8 @@ class InputDaemon(threading.Thread):
         self.ever_active = False
         self.device_name = ""
         self.enabled = True
+        # 采样/刷新周期：5ms ≈ 200Hz。这是"光标丝滑"的关键（配合 XTest 后端）
+        self.poll_s = 0.005
         self._stop = threading.Event()
 
     # ---------- 对外 ----------
@@ -133,17 +135,10 @@ class InputDaemon(threading.Thread):
                     now = time.time()
                     dt = min(0.1, now - last)
                     last = now
-                    batch: list[tuple[object, object]] = []
-                    for d in list(devs):
-                        try:
-                            evs = d.read(0.02)
-                        except OSError:
-                            d.close()
-                            devs.remove(d)
-                            continue
-                        for ev in evs:
-                            if not ev.is_init:
-                                batch.append((d, ev))
+                    # 一次 select 覆盖所有设备（别每台各等一次，否则光标会一顿一顿）
+                    batch = [
+                        (d, ev) for d, ev in read_many(devs, self.poll_s) if not ev.is_init
+                    ]
 
                     if batch:
                         in_batch = {d for d, _ in batch}
@@ -168,7 +163,7 @@ class InputDaemon(threading.Thread):
                             self.connected = True
                             self.device_name = f"{active.path} {active.name}"
                             self._notify_status()
-                        nav = mapper.nav_step()
+                        nav = mapper.nav_step(allow_left_stick=self.mode != MODE_LAUNCHER)
                         if nav:
                             self._dispatch([("nav", nav)])
                         if self.mode == MODE_LAUNCHER:

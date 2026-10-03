@@ -95,3 +95,24 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
 所以燕窝的做法是：**同时打开所有 js 设备，谁真的出事件就跟谁**，需要时自动切换。
 如果两边都不出事件，就在 Steam 库里给燕窝这条快捷方式把 Steam Input 关掉
 （库 → 属性 → 控制器 → 禁用），让物理设备空出来。
+
+## 12. 光标"一卡一卡"的两个真因（2026-10-04 实测修掉）
+
+1. **主循环里对每个设备各 `select` 一次**：4 个 js 设备 × 20ms 超时 = 80ms 一轮 → 12Hz，
+   手感必然一顿一顿。修法：`read_many()` 用**一次 select 覆盖所有 fd**，再只读就绪的。
+   实测：2 个设备一轮 4.81ms → 可以稳跑 ~200Hz。
+2. **每次移动都 spawn 一个 `xdotool` 进程**（实测 1.51ms/次，200Hz 就会不停建进程）。
+   修法：直接用 `libX11` + `libXtst` 的 **XTest** 扩展（ctypes 调用）：
+   `XTestFakeRelativeMotionEvent` / `XTestFakeButtonEvent` / `XTestFakeKeyEvent`。
+   实测 0.003ms/次（快 500 倍），零进程开销。
+   注意点：ctypes 里要设 `argtypes/restype`、要先 `XInitThreads()`、跨线程用锁串行化，
+   `XOpenDisplay` 是每线程/每连接独立。
+
+## 13. 光标形状
+
+- 我们**不替换系统光标**：Wine/Qt 会在鼠标进入/离开时反复重设自己的光标，
+  用 `XDefineCursor` 抢过来会被覆盖，做"自创光标覆盖层"不可靠（要软件渲染一个
+  覆盖窗口 + 把真光标设成全透明，容易留下"光标消失"的坑）。
+- 只是把**尺寸**调大一点适配 4K：给启动器进程加 `XCURSOR_SIZE=48`（Xcursor 会读它）。
+- 若以后真想要"小方块"光标：正路是做一个 **Xcursor 主题**（PNG/ARGB 的 cursor 文件），
+  再用 `XCURSOR_THEME` + `XCURSOR_PATH` 指给启动器进程 —— 见 ROADMAP P3。

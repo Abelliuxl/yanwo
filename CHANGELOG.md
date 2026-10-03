@@ -2,6 +2,30 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [0.3.0-demo] - 2026-10-04
+
+按实机反馈修的三点（P2 手感/逻辑）。
+
+### Fixed
+- **光标卡顿**：两个真因 —— ① 主循环对每个 js 设备各 `select` 一次（4×20ms=80ms/轮）；
+  ② 每次移动都 spawn `xdotool`（1.51ms/次）。
+  现在：`read_many()` 一次 select 覆盖所有设备（4.81ms/轮），并新增 **XTest 后端**
+  （ctypes 直连 libX11/libXtst，0.003ms/次，零进程开销）→ 循环 ~200Hz，光标丝滑。
+- **摇杆逻辑**：光标改为**左摇杆为主**（右摇杆也认），符合一般手柄游戏习惯；
+  Hub 菜单里左摇杆/十字键导航；官方启动器阶段左摇杆只移光标、不触发方向键（十字键仍映射方向键）。
+
+### Changed
+- `cursor.make_cursor()` 自动选择后端：XTest → xdotool → 空实现；启动时记录用的是哪个
+- 配方 `[steps.env]` 增加 `XCURSOR_SIZE=48`（4K 下系统光标太小）
+- 光标保持**系统光标**（不替换）：Wine/Qt 会反复重设光标，抢过来不可靠（原因见 DEV-NOTES 13）
+
+### Added
+- `input/profiles/xbox360.toml` 支持 `move_x2/move_y2`（副摇杆轴）
+- ROADMAP P3：多窗口/登录窗口切换、自创光标（Xcursor 主题）两条待定事项
+
+### Tests
+- 21 项（新增：双摇杆都能移光标、Hub/启动器两种模式下左摇杆行为差异）
+
 ## [0.2.0-demo] - 2026-10-04
 
 P2：手柄输入桥。让"不支持手柄"的启动器能用十字键/摇杆操作。

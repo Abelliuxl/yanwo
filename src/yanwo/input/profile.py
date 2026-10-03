@@ -20,8 +20,11 @@ PROFILE_DIR = REPO_ROOT / "input" / "profiles"
 class Profile:
     name: str = "xbox360"
     # 轴编号
-    axis_move_x: int = 3
-    axis_move_y: int = 4
+    # 光标轴：主=左摇杆（一般手柄游戏都是左摇杆移光标），副=右摇杆
+    axis_move_x: int = 0
+    axis_move_y: int = 1
+    axis_move_x2: int = 3
+    axis_move_y2: int = 4
     axis_hat_x: int = 6
     axis_hat_y: int = 7
     # 键编号
@@ -33,7 +36,7 @@ class Profile:
     btn_select: int = 6     # Back/Select
     # 光标手感
     deadzone: int = 6000          # 摇杆死区（满量程 32767）
-    speed_px_s: int = 1300        # 满推时每秒移动像素
+    speed_px_s: int = 2200        # 满推时每秒移动像素
     accel: float = 0.35           # 低偏移时的慢速系数
     scroll_step: int = 3          # 扳机/键一次滚轮的格数
     nav_repeat_ms: int = 320      # 十字键按住时的重复间隔
@@ -63,6 +66,8 @@ class Profile:
             "[axes]\n"
             f"move_x = {self.axis_move_x}\n"
             f"move_y = {self.axis_move_y}\n"
+            f"move_x2 = {self.axis_move_x2}\n"
+            f"move_y2 = {self.axis_move_y2}\n"
             f"hat_x = {self.axis_hat_x}\n"
             f"hat_y = {self.axis_hat_y}\n\n"
             "[buttons]\n"

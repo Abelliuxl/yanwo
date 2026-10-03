@@ -52,6 +52,8 @@ dll_paths = [
 [steps.env]
 QT_OPENGL = "software"
 QT_QUICK_BACKEND = "software"
+# 4K 屏下系统光标太小，让 Xcursor 放大一点（不影响游戏，游戏自己会重设光标）
+XCURSOR_SIZE = "48"
 
 # ---------------- 进程识别（用于状态机，不靠父子关系） ----------------
 [detect]
