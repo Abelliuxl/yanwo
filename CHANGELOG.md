@@ -16,8 +16,8 @@
 
 ### Changed
 - `cursor.make_cursor()` 自动选择后端：XTest → xdotool → 空实现；启动时记录用的是哪个
-- 配方 `[steps.env]` 增加 `XCURSOR_SIZE=48`（4K 下系统光标太小）
-- 光标保持**系统光标**（不替换）：Wine/Qt 会反复重设光标，抢过来不可靠（原因见 DEV-NOTES 13）
+- 光标**完全保持系统原装**：不改形状也不改大小（Wine/Qt 会反复重设光标，抢过来不可靠；
+  用户实测原装够用，见 DEV-NOTES 13）
 
 ### Added
 - `input/profiles/xbox360.toml` 支持 `move_x2/move_y2`（副摇杆轴）

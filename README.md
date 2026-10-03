@@ -24,7 +24,7 @@
 - **官方启动器**：**左摇杆**移光标（右摇杆也认），A 左键，B 右键，Start 回车，X 按 Esc
 - **游戏运行中**：桥自动关闭，交给游戏自己的手柄支持（不会打架）
 - 映射档：`input/profiles/xbox360.toml`（死区/速度/加速度都在里面）；诊断：`bin/yanwo calibrate`
-- 手感：光标输出走 XTest 直连 X11，循环 ~200Hz（不是每次 spawn 一个 xdotool）
+- 手感：光标输出走 XTest 直连 X11，循环 ~200Hz（不是每次 spawn 一个 xdotool）；光标形状保持系统原装
 - 如果手柄完全没反应：多半是 **Steam Input 抢住了物理设备** → 在 Steam 库里给燕窝这条
   快捷方式把 Steam Input 关掉（属性 → 控制器）
 

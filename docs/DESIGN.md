@@ -80,6 +80,7 @@ DONE → 显示 Hub → IDLE
 - **光标轴**：左摇杆为主、右摇杆也认（一般手柄游戏都是左摇杆移光标）；Hub 里左摇杆/十字键是菜单导航
 - **刷新率**：循环 5ms（~200Hz）；光标输出走 **XTest（ctypes 直连 libX11/libXtst，0.003ms/次）**，
   比 spawn `xdotool`（1.51ms/次）快 500 倍，也不会有进程开销
+- **光标外观**：不管。保持系统原装（只移动、只点击）——改形状会被 Wine/Qt 覆盖，收益也小
 - 校准：`yanwo calibrate` 看编号；映射档 `input/profiles/xbox360.toml`
 - 与 Steam Input **二选一**：同时开会双重输入（建议给燕窝这条快捷方式禁用 Steam Input）
 
