@@ -15,14 +15,15 @@
 - [ ] 桌面模式实机跑一遍（人肉确认菜单能开、能进游戏、退出能回菜单）
 - [ ] Steam 条目切换到燕窝（保留旧条目一段时间做后备）
 
-## P2 · 输入桥（下一步）
-- [ ] `DEV-NOTES` 里的"设备校准"：按一次记录轴/键编号 → `input/profiles/*.toml`
-- [ ] evdev 读取（`select` + 非阻塞；注意 js 设备 **不** 吃 `O_NONBLOCK` 的读，必须 select）
-- [ ] 输出后端 `xdotool`：摇杆→`mousemove_relative`，A→`click 1`，Start→`key Return`
-- [ ] 门控：只在 `bridge.active_when` 阶段 + 目标窗口前台时注入
-- [ ] 游戏模式：自动定位 gamescope 的 DISPLAY
-- [ ] Hub 菜单本身也吃手柄（Hub 自己直读 evdev，不走 xdotool）
-- [ ] 决定与 Steam Input 的关系（文档里要求二选一）
+## P2 · 输入桥 ✅（2026-10-04 完成，待实机验证）
+- [x] 读 /dev/input/js*（`select`；注意 js 设备**不能**靠 `O_NONBLOCK` 读，会永久阻塞）
+- [x] 多设备自动跟随（Steam Input 可能 EVIOCGRAB 抓住物理手柄 → 改用虚拟设备）
+- [x] 输出后端 `xdotool`（零 root）：摇杆→`mousemove_relative`，A→`click 1`，Start→`key Return`
+- [x] 三模式切换：hub / launcher / off（游戏运行中让位给游戏）
+- [x] Hub 菜单吃手柄：十字键/左摇杆选择、A 启动、B 退出
+- [x] `yanwo calibrate` 诊断 + `input/profiles/xbox360.toml` 映射档
+- [ ] 游戏模式实机验证（gamescope 下的 DISPLAY + Steam Input 抓取情况）
+- [ ] 摇杆手感调参（死区/速度/加速度）
 
 ## P3 · 安装/分发
 - [ ] `[install]` 真正执行：下载官方安装器 → 在自管 prefix 里装 → 自动打补丁（DPI、DLL 覆盖、软件渲染）

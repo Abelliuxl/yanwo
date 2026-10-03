@@ -1,0 +1,26 @@
+# 燕窝 Yanwo 手柄映射档：Xbox 360 兼容手柄（Linux joystick API）
+#
+# 用 `yanwo calibrate` 可以看到你手柄实际的"轴/键编号"，改这里即可。
+# 轴: 0=左摇杆X 1=左摇杆Y 3=右摇杆X 4=右摇杆Y 6=十字键X 7=十字键Y
+# 键: 0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start
+name = "xbox360"
+
+[axes]
+move_x = 3      # 右摇杆 X → 鼠标左右
+move_y = 4      # 右摇杆 Y → 鼠标上下
+hat_x = 6       # 十字键 X
+hat_y = 7       # 十字键 Y
+
+[buttons]
+confirm = 0     # A：Hub 里确认 / 启动器里左键
+back = 1        # B：Hub 里退出 / 启动器里右键
+third = 2       # X：启动器里按 Esc
+fourth = 3      # Y
+start = 7       # Start：启动器里回车
+select = 6      # Back/Select
+
+[feel]
+deadzone = 6000       # 摇杆死区（满量程 32767）
+speed_px_s = 1300     # 满推时每秒移动的像素
+accel = 0.35          # 轻推时的慢速比例
+nav_repeat_ms = 320   # 十字键按住时的重复间隔

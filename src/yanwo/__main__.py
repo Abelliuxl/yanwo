@@ -38,6 +38,41 @@ def _cmd_run(args) -> int:
     return 0
 
 
+def _cmd_calibrate(_args) -> int:
+    """看手柄编号：动一下摇杆/按键，就知道每个轴和键的编号。"""
+    from .input.jsdevice import list_devices, pick_device
+    from .input.profile import PROFILE_DIR, Profile, default_profile_path
+
+    devs = list_devices()
+    print("[calibrate] 发现的设备：")
+    for path, name in devs:
+        print(f"    {path:<20} {name}")
+    if not devs:
+        print("[calibrate] 没有 /dev/input/js*（手柄没插好？）")
+        return 1
+    p = Profile.load(default_profile_path())
+    print(f"[calibrate] 当前映射档：{p.name}（{default_profile_path() or PROFILE_DIR/'（默认）'}）")
+    print("[calibrate] 现在动一下手柄（推右摇杆、按 A/B/十字键）……最多等 15 秒")
+    dev = pick_device(probe_timeout=15)
+    if not dev:
+        print("[calibrate] 没有设备产生事件")
+        return 1
+    print(f"[calibrate] 选中：{dev.path}  ({dev.name})")
+    print("[calibrate] 实时事件（Ctrl-C 结束）：")
+    try:
+        while True:
+            for ev in dev.read(0.2):
+                if ev.is_init:
+                    continue
+                kind = {1: "键", 2: "轴"}.get(ev.type, f"type{ev.type}")
+                print(f"    {kind} {ev.number:>3}   value={ev.value:>7}")
+    except KeyboardInterrupt:
+        print("\n[calibrate] 结束")
+    finally:
+        dev.close()
+    return 0
+
+
 def _cmd_selftest(_args) -> int:
     """不进入事件循环的自检：配方能读、UI 能建、步骤字段齐全。"""
     ok = True
@@ -71,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     pr = sub.add_parser("run", help="直接运行某个配方（无界面）")
     pr.add_argument("id")
     sub.add_parser("selftest", help="自检（不进入事件循环）")
+    sub.add_parser("calibrate", help="看手柄的轴/键编号（诊断/校准用）")
 
     args = p.parse_args(argv)
     if args.cmd == "list":
@@ -79,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_run(args)
     if args.cmd == "selftest":
         return _cmd_selftest(args)
+    if args.cmd == "calibrate":
+        return _cmd_calibrate(args)
 
     recipes = load_recipes()
     if not recipes:

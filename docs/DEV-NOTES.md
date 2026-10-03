@@ -73,3 +73,25 @@
 | patch 日志 | `…/yysls_fast/LocalData/patch_log/patch_log_*.txt` |
 
 判读：`launcher.log` 里 `enter game` → `detect window` 后**不再出现 `exit game`** = 游戏真的起来了。
+
+## 9. 进程识别必须跳过僵尸
+
+被 SIGKILL/SIGTERM 的进程如果没被父进程 `wait()`，会变成**僵尸**——`/proc/<pid>/comm`
+**仍然存在**！只看 comm 会永远认为"它还活着"，状态机永远卡在等待。
+修法：读 `/proc/<pid>/stat` 第 3 个字段（`)` 之后第一个 token），是 `Z/X` 就跳过；
+同时自己起的子进程要主动 `Popen.poll()` 回收。
+
+## 10. js 设备的读法
+
+- js 设备**不能**靠 `O_NONBLOCK` 读：`os.read` 会永久阻塞，必须 `select([fd], timeout)`。
+- 事件固定 8 字节 `<IhBB`（time, value, type, number），type 高位 0x80 = 初始化事件，要跳过。
+- Linux xpad 布局：轴 0/1=左摇杆，3/4=右摇杆，6/7=十字键；键 0=A 1=B 2=X 3=Y 6=Back 7=Start。
+
+## 11. Steam Input 会"抢"手柄
+
+Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/event 设备将收不到事件**
+（你机器上会看到 Steam 造出来的虚拟手柄 `/dev/input/js2`、`js3`，名字类似
+"Microsoft X-Box 360 pad 0/1"，物理的是 js0/js1）。
+所以燕窝的做法是：**同时打开所有 js 设备，谁真的出事件就跟谁**，需要时自动切换。
+如果两边都不出事件，就在 Steam 库里给燕窝这条快捷方式把 Steam Input 关掉
+（库 → 属性 → 控制器 → 禁用），让物理设备空出来。

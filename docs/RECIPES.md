@@ -50,11 +50,11 @@ max_growth_gb = 4
 window_seconds = 60
 max_global_vram_pct = 92
 
-[bridge]                                # 输入桥（P2）
-active_when = ["hub", "launcher"]       # 哪些阶段需要桥
-profile = "cursor_click"
-backend = "xdotool"
-enabled = false
+[bridge]                                # 输入桥（P2 已实现）
+enabled = true                          # false = 这个游戏全程不接管手柄
+active_when = ["hub", "launcher"]       # 哪些阶段需要桥（游戏运行阶段一律让位）
+profile = "cursor_click"                # 语义档名（实际映射在 input/profiles/*.toml）
+backend = "xdotool"                     # 零 root；将来可加 uinput
 ```
 
 ## 内置变量（不用定义就能用）

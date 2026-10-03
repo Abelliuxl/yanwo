@@ -80,7 +80,9 @@ class TextMenuUI:
         self.footer = tk.Label(self.root, text="", font=self.f_tip, fg=DIM, bg=BG, anchor="w")
         self.footer.pack(fill="x", padx=48, pady=(0, 6))
         self.status = tk.Label(self.root, text="", font=self.f_sub, fg=FG, bg=BG, anchor="w")
-        self.status.pack(fill="x", padx=48, pady=(0, 28))
+        self.status.pack(fill="x", padx=48, pady=(0, 4))
+        self.pad_status = tk.Label(self.root, text="", font=self.f_tip, fg=DIM, bg=BG, anchor="w")
+        self.pad_status.pack(fill="x", padx=48, pady=(0, 28))
 
         self._render_rows()
 
@@ -109,7 +111,9 @@ class TextMenuUI:
                 bg=BG,
             ).pack(pady=40)
         self._highlight()
-        self.footer.configure(text="↑ ↓ / j k 选择     Enter 启动     R 刷新     Esc 退出")
+        self.footer.configure(
+            text="↑ ↓ / 十字键 选择      Enter / A 启动      R 刷新      Esc / B 退出"
+        )
 
     def _highlight(self) -> None:
         for i, (row, lab, sub) in enumerate(self._rows):
@@ -117,6 +121,19 @@ class TextMenuUI:
             row.configure(bg=BG_SEL if on else BG)
             lab.configure(bg=BG_SEL if on else BG, fg=FG_SEL if on else FG)
             sub.configure(bg=BG_SEL if on else BG, fg=FG_SEL if on else DIM)
+
+    # ---------- 手柄（公开方法，内部会走队列，可从任意线程调） ----------
+    def move_by(self, d: int) -> None:
+        self._post(self._move, d)
+
+    def activate(self) -> None:
+        self._post(self._launch)
+
+    def request_quit(self) -> None:
+        self._post(self._quit)
+
+    def set_pad_status(self, text: str) -> None:
+        self._post(lambda t=text: self.pad_status.configure(text=t))
 
     # ---------- 交互 ----------
     def _move(self, d: int) -> None:

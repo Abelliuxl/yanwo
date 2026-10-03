@@ -62,7 +62,7 @@ DONE → 显示 Hub → IDLE
 | 显存失控 | `[safety]` 触发 → 收尾（保护桌面不冻死） |
 | 收尾细节 | 先 `xdotool windowclose` 每个窗口 → 等 6s → 若还有残留 `kill_orphan_wine` 就 TERM→KILL |
 
-## 5. 输入桥（P2 设计）
+## 5. 输入桥（P2 已实现）
 
 ```
 手柄(evdev /dev/input/js*) → 桥 → 输出后端 → 启动器
@@ -71,10 +71,14 @@ DONE → 显示 Hub → IDLE
                                   └─ steam-input（委托 Valve，零维护但依赖 Steam Input 配置）
 ```
 
-- 校准：按一次即可（记录各轴/键的编号），存成 `input/profiles/*.toml`
-- 门控：只有在 `bridge.active_when` 列出的阶段、且目标窗口是前台时才注入
-- 游戏模式：需要自动定位 gamescope 的 DISPLAY（`/tmp/.X11-unix/` 扫描）
-- 与 Steam Input **二选一**：同时开会双重输入
+- 实现：`input/jsdevice.py`（读 /dev/input/js*，必须 select）、`mapper.py`（语义意图）、
+  `cursor.py`（xdotool 输出）、`daemon.py`（线程 + 三模式切换）
+- **三模式**：`hub`（十字键/A/B 操作 Hub 菜单）、`launcher`（右摇杆=鼠标、A=左键、B=右键、Start=回车、X=Esc）、
+  `off`（游戏运行中，交给游戏自己的手柄支持）
+- **多设备自动跟随**：Steam Input 可能用 EVIOCGRAB 抓住物理手柄，所以同时打开所有 js 设备，
+  谁真的出事件就跟谁，并在切换时记日志
+- 校准：`yanwo calibrate` 看编号；映射档 `input/profiles/xbox360.toml`
+- 与 Steam Input **二选一**：同时开会双重输入（建议给燕窝这条快捷方式禁用 Steam Input）
 
 ## 6. 命名
 

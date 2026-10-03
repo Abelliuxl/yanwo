@@ -31,10 +31,12 @@ class Phase(str, Enum):
 
 
 class Session:
-    def __init__(self, recipe: Recipe, ui, logger: logging.Logger | None = None):
+    def __init__(self, recipe: Recipe, ui, logger: logging.Logger | None = None, on_input_mode=None):
         self.recipe = recipe
         self.ui = ui
         self.log = logger or logging.getLogger("yanwo.session")
+        # 由 Hub 提供的回调：切换手柄桥模式（hub / launcher / off）
+        self.on_input_mode = on_input_mode
         self.phase = Phase.IDLE
         self._stop = False
         self._reason = ""
@@ -107,6 +109,7 @@ class Session:
 
             self._set_phase(Phase.LAUNCHING)
             self._status("正在启动官方启动器…")
+            self._input("hub")
             self._procs = runner.launch_chain(r)
 
             # 显存安全阀：系统已有独立守卫时让位给它
@@ -128,6 +131,7 @@ class Session:
 
             self.log.info("隐藏 Hub 窗口，让位给官方启动器")
             self.ui.hide()  # 让位给官方启动器窗口
+            self._input("launcher")  # 现在开始：右摇杆 = 鼠标
             self.log.info("进入等待循环")
             self._wait_loop()
         except Exception as e:  # noqa: BLE001
@@ -137,9 +141,17 @@ class Session:
         finally:
             self.cleanup()
             self.log.info("收尾完毕，回到 Hub")
+            self._input("hub")
             self.ui.show()
             self._status("")
             self.ui.refresh()
+
+    def _input(self, mode: str) -> None:
+        if self.on_input_mode:
+            try:
+                self.on_input_mode(mode)
+            except Exception:  # noqa: BLE001
+                self.log.exception("切换输入模式失败")
 
     def _reap(self) -> None:
         """回收已退出的子进程（不回收会变僵尸，进程名还在，检测就会以为它还活着）。"""
@@ -168,6 +180,7 @@ class Session:
                 seen_game = True
                 self._set_phase(Phase.GAME)
                 self._status("游戏运行中…")
+                self._input("off")  # 游戏自己管手柄，桥让位
             elif not game_alive and seen_game:
                 self.log.info("游戏已退出")
                 seen_game = False
@@ -177,6 +190,7 @@ class Session:
                     return
                 self._set_phase(Phase.LAUNCHER)
                 self._status("官方启动器仍在运行…")
+                self._input("launcher")
 
             if not launcher_alive and not game_alive:
                 self.log.info("启动器与游戏都已退出")

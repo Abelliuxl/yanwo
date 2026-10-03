@@ -77,4 +77,4 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 active_when = ["hub", "launcher"]  # 游戏运行时关掉，交给游戏自己的手柄支持
 profile = "cursor_click"
 backend = "xdotool"                # 零 root
-enabled = false                    # P2 打开
+enabled = true                     # P2 已实现：Hub/启动器阶段接管手柄

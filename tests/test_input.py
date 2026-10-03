@@ -1,0 +1,137 @@
+"""手柄桥的单元测试（不需要真的手柄）。"""
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from yanwo.input.jsdevice import RawEvent, TYPE_AXIS, TYPE_BUTTON  # noqa: E402
+from yanwo.input.mapper import Mapper  # noqa: E402
+from yanwo.input.profile import Profile  # noqa: E402
+
+
+def btn(n: int, pressed: bool = True) -> RawEvent:
+    return RawEvent(0, 1 if pressed else 0, TYPE_BUTTON, n)
+
+
+def axis(n: int, v: int) -> RawEvent:
+    return RawEvent(0, v, TYPE_AXIS, n)
+
+
+class TestProfile(unittest.TestCase):
+    def test_defaults_match_xbox(self):
+        p = Profile()
+        self.assertEqual((p.axis_move_x, p.axis_move_y), (3, 4))
+        self.assertEqual((p.btn_confirm, p.btn_back), (0, 1))
+
+    def test_roundtrip(self):
+        p = Profile()
+        p.speed_px_s = 999
+        p.btn_confirm = 5
+        toml = p.to_toml()
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d, "x.toml")
+            f.write_text(toml, encoding="utf-8")
+            q = Profile.load(f)
+        self.assertEqual(q.speed_px_s, 999)
+        self.assertEqual(q.btn_confirm, 5)
+
+
+class TestMapper(unittest.TestCase):
+    def setUp(self):
+        self.p = Profile()
+        self.m = Mapper(self.p)
+
+    def test_button_edges(self):
+        self.assertEqual(self.m.feed(btn(0, True)), [("confirm", 1)])
+        self.assertEqual(self.m.feed(btn(0, True)), [], "重复按下要忽略")
+        self.assertEqual(self.m.feed(btn(0, False)), [], "松开不产生意图")
+        self.assertEqual(self.m.feed(btn(0, True)), [("confirm", 1)], "松开后可以再按")
+        self.assertEqual(self.m.feed(btn(1, True)), [("back", 1)])
+
+    def test_unknown_button(self):
+        self.assertEqual(self.m.feed(btn(9, True)), [("button", 9)])
+
+    def test_deadzone(self):
+        self.m.feed(axis(self.p.axis_move_x, 100))
+        self.assertEqual(self.m.cursor_velocity(), (0.0, 0.0))
+        self.m.feed(axis(self.p.axis_move_x, 32767))
+        vx, vy = self.m.cursor_velocity()
+        self.assertGreater(vx, 0.9)
+        self.assertEqual(vy, 0.0)
+
+    def test_nav_hat(self):
+        self.assertEqual(self.m.nav_step(), 0)
+        self.m.feed(axis(self.p.axis_hat_y, -32767))
+        self.assertEqual(self.m.nav_step(), -1, "第一次应立刻响应")
+        self.assertEqual(self.m.nav_step(), 0, "同一方向不应立刻重复")
+        self.m.feed(axis(self.p.axis_hat_y, 0))
+        self.assertEqual(self.m.nav_step(), 0)
+        self.m.feed(axis(self.p.axis_hat_y, 32767))
+        self.assertEqual(self.m.nav_step(), 1)
+
+    def test_nav_repeat_disabled(self):
+        self.p.nav_repeat_ms = 0
+        self.m.feed(axis(self.p.axis_hat_y, 32767))
+        self.assertEqual(self.m.nav_step(), 1)
+        self.assertEqual(self.m.nav_step(), 1, "repeat=0 时应每次都出")
+
+    def test_parse_init_and_normal(self):
+        import struct
+
+        from yanwo.input.jsdevice import EVENT_FMT, parse_events
+
+        buf = struct.pack(EVENT_FMT, 1, 1, TYPE_BUTTON | 0x80, 0) + struct.pack(
+            EVENT_FMT, 2, 1, TYPE_BUTTON, 3
+        )
+        evs, rest = parse_events(buf)
+        self.assertEqual(len(evs), 2)
+        self.assertTrue(evs[0].is_init, "高位的初始化事件要被标出来")
+        self.assertFalse(evs[1].is_init)
+        self.assertEqual(evs[1].number, 3)
+        self.assertEqual(rest, b"")
+        evs2, rest2 = parse_events(buf[:6])
+        self.assertEqual((evs2, len(rest2)), ([], 6), "半包要留着")
+
+
+class TestDaemon(unittest.TestCase):
+    def test_launcher_actions(self):
+        from yanwo.input.daemon import InputDaemon
+
+        calls: list = []
+        d = InputDaemon(on_intent=lambda k, v: calls.append((k, v)))
+        d.cursor.click = lambda b=1: calls.append(("click", b))  # type: ignore
+        d.cursor.key = lambda k: calls.append(("key", k))  # type: ignore
+        d.set_mode("launcher")
+        d._dispatch([("confirm", 1), ("back", 1), ("start", 1), ("nav", -1)])
+        self.assertIn(("click", 1), calls)
+        self.assertIn(("click", 3), calls)
+        self.assertIn(("key", "Return"), calls)
+        self.assertIn(("key", "Up"), calls)
+
+    def test_off_mode_is_silent(self):
+        from yanwo.input.daemon import InputDaemon
+
+        calls = []
+        d = InputDaemon(on_intent=lambda k, v: calls.append(k))
+        d.set_mode("off")
+        d._dispatch([("confirm", 1), ("nav", 1)])
+        self.assertEqual(calls, [])
+
+    def test_hub_mode_forwards(self):
+        from yanwo.input.daemon import InputDaemon
+
+        calls = []
+        d = InputDaemon(on_intent=lambda k, v: calls.append((k, v)))
+        d.set_mode("hub")
+        d._dispatch([("nav", -1), ("confirm", 1)])
+        self.assertEqual(calls, [("nav", -1), ("confirm", 1)])
+
+
+if __name__ == "__main__":
+    unittest.main()
