@@ -81,20 +81,36 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 #   desktop mode（KWin）：全部有效。
 [windows]
 enabled = true
-watch_seconds = 180          # 进游戏后观察多久（窗口是陆续冒出来的）
+watch_seconds = 180
 
-# 用户决定（2026-10-04）：**不要动年龄提示**（关掉还会再冒出来），
-# 改成"登录窗一出现就把它激活到最前" —— 年龄窗自然被压在后面，管它干嘛。
+# ═══════════════════════════════════════════════════════════════════════
+# 2026-10-04 实机 + gamescope 源码结论（详见 docs/DEV-NOTES.md 第 19 节）
 #
-# activate = 给 WM 发 EWMH `_NET_ACTIVE_WINDOW`。**这是 game mode 下唯一有效的置前方式**：
-#   gamescope 收到后会调用*它自己*的 XRaiseWindow → restack_win()，连它内部的绘制列表
-#   一起重排（画面层级真的变）。而我们外部直接发 raise/lower 会被它重定向后吞掉。
-#   验证看堆叠索引（gamescope 从不把 _NET_ACTIVE_WINDOW 写到 root 上）。
+# 燕云在 game mode 下同时开三个窗口（都是 yysls.exe 的）：
+#   燕云十六声      3840x2160  主窗口
+#   登录            720x960+1560+600   二维码登录框（内容正常！）
+#   MpayAgeTipsForm 120x152+0+0        "16+ CADPA 适龄提示"小卡片
+#
+# 玩家看到的"大卡片"= **年龄窗的内容被 gamescope 拉伸铺满登录窗的矩形**：
+# steamcompmgr.cpp:2124 里 override 层用 `scaleW->GetGeometry()`（= focus 窗）
+# 当尺寸，于是 120x152 的卡片被拉成 720x960 盖住登录窗。
+# 证据：unmap 年龄窗→卡片消失；unmap 登录窗→卡片仍在；像素指纹匹配年龄窗。
+#
+# 实测**无效或有害**（都有截图对比）：
+#   lower/raise/focus/move/_NET_WM_WINDOW_OPACITY=0/hide(年龄窗)
+#   - hide(年龄窗)：卡片没了，但登录窗矩形变全黑 —— gamescope 压根没有登录窗的内容
+#     （它只画 focus 窗 + override 窗两层，登录窗这一层提交不上来）
+#   - remap(主窗口)：画面会整个黑掉（D3D12 窗口重映射的副作用），过一会儿才自己恢复
+#
+# 所以：**只保留 activate**（唯一确认有效且无害的动作）。
+# 结论：game mode 下"看见登录窗"靠窗口操作做不到 —— 请到**桌面模式**登录一次，
+#       登录状态会保留，之后回 game mode 直接进游戏。
+# ═══════════════════════════════════════════════════════════════════════
 [[windows.rules]]
 name = "登录窗激活到最前"
 match = "^(登录|Login|登入)"
 actions = ["activate"]
-repeat_seconds = 6      # 没抢到就每 6 秒再请求一次，直到它真的在前
+repeat_seconds = 6
 priority = 30
 
 # ---------------- 输入桥（P2 实现） ----------------

@@ -191,3 +191,61 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
   再按恢复；暂停状态会显示在 Hub 底部（`⏸ 已暂停`）。
 - 也留了 `pause_windows`（标题正则）用于"某窗口出现就自动暂停"，但 Steam 覆盖界面在 game mode 下
   通常是 gamescope 自己画的、**没有 X 窗口**，所以主要靠上面的快捷键。
+
+## 19. 燕云登录窗在 game mode 下"看不见"的完整结论（2026-10-04，实机 + gamescope 源码）
+
+### 现象
+game mode 里屏幕中央显示一张放大的**「16+ CADPA 适龄提示」卡片**，盖住了二维码登录窗；
+玩家以为登录窗有问题，其实**登录窗内容完全正常**（抓到它的像素：二维码登录框，
+当时显示「登录失败 / 二维码已过期，请刷新后重新扫描 / 重新登录」）。
+
+### 三个窗口（都是 yysls.exe 的，都是普通窗口，非 override-redirect）
+| 窗口 | 几何 | 内容 |
+|---|---|---|
+| 燕云十六声 | 3840x2160+0+0 | 主窗口（登录阶段是黑屏） |
+| 登录 | 720x960+1560+600 | 二维码登录框（白底，正常） |
+| MpayAgeTipsForm | 120x152+0+0 | 年龄提示卡片（橙白） |
+
+### 根因：gamescope 的 override 层会把内容拉伸到 focus 窗的矩形
+`src/steamcompmgr.cpp` `paint_window_commit()`：
+```c
+if (w == scaleW) { sourceWidth = layer->tex->width(); ... }
+else { sourceWidth = scaleW->GetGeometry().nWidth;   // ← w=override, scaleW=focus
+       sourceHeight = scaleW->GetGeometry().nHeight; }
+if (fit) { sourceWidth = max(sourceWidth, clamp(fit->x + fit->w, 0, outW)); ... }
+```
+`paint_all()` 对 override 的调用是 `paint_window(override, w=focus, ..., fit=override)`
+（:2635），所以 **override 窗口的纹理被拉伸成 focus 窗口的尺寸**。
+focus = 登录窗（720x960@1560,600）时，120x152 的年龄卡片就被拉成 720x960 盖住登录框。
+
+年龄卡为什么会被选成 override：`win_maybe_a_dropdown()`（固定位置 + 小尺寸 + skipTaskbar
+且非 dialog）→ 它被当成"弹出层"。三个窗口都带 `_NET_WM_STATE_SKIP_TASKBAR`，
+`_WINE_HWND_EXSTYLE` 都是 0（所以不是 WS_EX_LAYERED 导致的）。
+
+### 实测证据（用 `tools/gs-shot.py` 截图对比）
+| 操作 | 结果 |
+|---|---|
+| `hide` 年龄窗 | 卡片消失，但**整屏黑**（登录窗这一层 gamescope 提交不上来） |
+| `hide` 登录窗 | 卡片**原地不动** → 证明卡片内容来自年龄窗 |
+| `hide` 年龄窗 + `hide` 主窗 | 仍然全黑 → 登录窗的内容 gamescope 根本不画 |
+| `move` / `lower` / `raise` / `focus` | 被 WM 吞掉或对画面无影响 |
+| `_NET_WM_WINDOW_OPACITY=0`（年龄窗） | 无变化（gamescope 不走这条排除路径） |
+| `activate`（登录窗/主窗） | **有效**（改 X 堆叠 + gamescope 内部 restack），但对"谁被显示"没影响 |
+| `remap` 主窗口 | 画面整个黑掉（D3D12 重映射副作用），约 1 分钟后自己恢复 |
+
+### 结论与对策
+- gamescope 只画 **focus 窗 + override 窗** 两层，其它窗口根本不画；且 override 会被拉伸
+  到 focus 的矩形。燕云这种"主窗 + 登录弹窗 + 小提示窗"的结构在 game mode 下就是显示不出来。
+- **对策：到桌面模式（KWin）登录一次**。KWin 下三个窗口都正常显示，登录状态会保存，
+  之后回 game mode 直接进游戏，不需要再登录。
+- 配方里只保留 `activate`（无害）；不要再用 hide/close/remap 折腾这些窗口。
+
+### 顺手得到的两个通用工具/技巧
+1. **`gamescopectl screenshot <path> [type]`** 可以拿到 gamescope 真正合成的画面
+   （type: 1=base_plane_only 2=all_real_layers 3=full_composition 4=screen_buffer）。
+   这是 game mode 下判断"窗口到底显示了没"的唯一可靠手段 —— `XGetImage(root)` 在
+   gamescope 上必然 `BadMatch`（画面是它自己合成的，X 端没有内容）。
+   ⚠️ libX11 默认错误处理器遇到 BadMatch 会 `exit(1)`，所以 `core/windows.py` 里装了
+   `XSetErrorHandler` 把它降级成 `last_error`，否则一次探测就能把 Hub 干掉。
+2. **`gamescopectl help`** 列出所有 gamescope 调试命令（还有 `log_<通道> debug` 可以
+   打开调试日志，日志进 journal）。

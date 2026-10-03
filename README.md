@@ -24,6 +24,7 @@
 - **官方启动器**：**左摇杆**移光标（右摇杆也认），A 左键，B 右键，Start 回车，X 按 Esc
 - **游戏本体**：默认关掉（交给游戏自己的手柄支持），但**登录窗/公告/设置等 UI 窗口一出现就自动打开光标**
   （配方里 `[bridge] cursor_windows` 声明；通用启发式：任意弹窗也算）
+- **诊断**：`tools/gs-shot.py`（gamescope 截图+分析）——game mode 下唯一能确认"窗口显示了没"的办法
 - **光标只用右摇杆**（`pointer_stick = "right"`）：左摇杆留给 Steam 覆盖界面/切窗口，互不打架
 - **登录窗自动置前**：配方里 `actions = ["activate"]`（EWMH `_NET_ACTIVE_WINDOW`）——
   game mode 下唯一真正有效的置前方式（gamescope 会把它转成自己的 restack）

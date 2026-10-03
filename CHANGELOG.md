@@ -2,6 +2,29 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [0.8.0-demo] - 2026-10-04
+
+燕云登录窗"看不见"的**彻底定案**（实机 + gamescope 源码），以及配套工具。
+
+### Added
+- `tools/gs-shot.py`：gamescope 截图 + 画面分析工具（`--find` 列出画面里的块、
+  `--crop/--scale` 导出可看的图）。game mode 下判断"窗口到底显示了没"的唯一可靠手段
+- `tools/png.py`：自带 PNG 读写/裁剪/缩放（本机没有 PIL/numpy）
+- `core/windows.py`：`_X.pixel()/input_focus()`，以及**X 错误处理器**
+  （libX11 默认遇 BadMatch 会 exit(1)，一次 XGetImage 就能干掉 Hub）
+
+### Changed
+- 燕云配方的窗口规则**只保留 `activate`**（唯一有效且无害的动作），并把定案结论写进注释
+
+### Fixed
+- 之前"年龄窗挡着登录窗"的各种尝试（lower/close/hide/opacity/remap）都是错的方向：
+  真相是 **gamescope 把年龄窗内容拉伸铺满了登录窗矩形**，而登录窗这一层 gamescope
+  根本不画（只画 focus + override 两层）。**正确做法是到桌面模式登录一次**。
+
+### Docs
+- DEV-NOTES 19：完整证据链（三个窗口的几何/内容、gamescope 源码位置、
+  8 种操作的实测结果表）+ `gamescopectl screenshot` 这个通用技巧
+
 ## [0.7.0-demo] - 2026-10-04
 
 第三轮实机反馈：**年龄窗不再动它，改为把登录窗激活到最前**；光标只用右摇杆。
