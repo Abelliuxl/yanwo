@@ -7,7 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from yanwo.core.windows import WindowInfo, WindowRules, match_title  # noqa: E402
+from yanwo.core.windows import (  # noqa: E402
+    BridgeGate,
+    WindowInfo,
+    WindowRules,
+    match_title,
+)
 
 
 def win(wid: int, title: str, w: int = 800, h: int = 600, mapped: bool = True) -> WindowInfo:
@@ -35,6 +40,35 @@ class TestMatch(unittest.TestCase):
 
     def test_bad_regex_is_not_fatal(self):
         self.assertEqual(match_title("([", self.wins), [])
+
+
+class TestBridgeGate(unittest.TestCase):
+    """游戏阶段"要不要开光标桥"的判定：只剩主窗口→关；有弹窗/命中标题→开。"""
+
+    def main_win(self, wid=1, title="燕云十六声"):
+        return WindowInfo(wid, title, 0, 0, 0, 3840, 2160, True)
+
+    def dialog(self, wid=2, title="登录"):
+        return WindowInfo(wid, title, 0, 0, 0, 720, 960, True, transient_for=1)
+
+    def test_only_main_window_wants_no_cursor(self):
+        g = BridgeGate(cursor_windows=["^(登录|Login)$"], cursor_on_dialogs=True)
+        self.assertFalse(g.wants_cursor([self.main_win()])[0])
+
+    def test_dialog_enables_cursor(self):
+        wins = [self.main_win(), self.dialog()]
+        self.assertTrue(BridgeGate([], True).wants_cursor(wins)[0])
+        self.assertFalse(BridgeGate([], False).wants_cursor(wins)[0], "关掉弹窗启发式就不开")
+
+    def test_title_pattern_enables_cursor(self):
+        wins = [self.main_win(), WindowInfo(2, "登录", 0, 0, 0, 720, 960, True)]
+        g = BridgeGate(cursor_windows=["^(登录|Login)$"], cursor_on_dialogs=False)
+        self.assertTrue(g.wants_cursor(wins)[0])
+
+    def test_helper_windows_ignored(self):
+        g = BridgeGate([], True)
+        wins = [self.main_win(), WindowInfo(9, "Default IME", 0, 0, 0, 1, 1, True, transient_for=1)]
+        self.assertFalse(g.wants_cursor(wins)[0], "IME/1x1 辅助窗不算")
 
 
 class TestRules(unittest.TestCase):

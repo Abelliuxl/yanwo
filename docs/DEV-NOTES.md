@@ -142,5 +142,16 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
    &nitems, &bytes_after, &prop_return)`。
 2. **中文标题要读 `_NET_WM_NAME`（UTF8_STRING）**，不要用 `XFetchName`（那是 `WM_NAME`，
    中文会变成 `??`）。Wine 两个都会设。
-3. `XWindowAttributes` 的 `map_state` 在 x86_64 上偏移 **92**（0=Unmapped 1=Unviewable 2=Viewable），
+3. **32 位属性只有 4 字节**：读 `WM_TRANSIENT_FOR` / `_NET_WM_PID` 时别写 `len(raw) >= 8`
+   才解析（会永远得到 0），要 `raw[:4].ljust(4, b"\0")`。Wine 这几个窗口靠它才能识别成"弹窗"。
+4. `XWindowAttributes` 的 `map_state` 在 x86_64 上偏移 **92**（0=Unmapped 1=Unviewable 2=Viewable），
    用它过滤掉 IME/托盘那种 1x1 辅助窗口。
+
+## 16. 游戏阶段的输入桥：按"窗口"而不是"阶段"开关（2026-10-04 需求）
+
+游戏本体是 `yysls.exe` 一个进程，但它同时有：主窗口（3840x2160）+ `登录`(720x960) +
+`MpayAgeTipsForm`(120x152)。**只有主窗口不需要鼠标**，登录/公告/设置这些 UI 窗口手柄点不了。
+
+所以桥的模式做成三层（`[bridge]` 里声明的 `cursor_windows` / `cursor_on_dialogs`）：
+游戏阶段里只要"命中标题"或"出现弹窗"（`WM_TRANSIENT_FOR` 非 0）→ 开 `cursor` 模式；
+只剩主窗口 → 回到 `off`。门控由窗口守护线程**全程**评估（规则本身只观察前 `watch_seconds` 秒）。

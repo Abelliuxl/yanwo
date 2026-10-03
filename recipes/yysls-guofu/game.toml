@@ -98,7 +98,19 @@ priority = 10
 
 # ---------------- 输入桥（P2 实现） ----------------
 [bridge]
-active_when = ["hub", "launcher"]  # 游戏运行时关掉，交给游戏自己的手柄支持
+active_when = ["hub", "launcher"]  # Hub 和官方启动器阶段一直开
 profile = "cursor_click"
-backend = "xdotool"                # 零 root
-enabled = true                     # P2 已实现：Hub/启动器阶段接管手柄
+backend = "auto"                   # 自动：XTest → xdotool（零 root）
+enabled = true
+
+# 游戏本体阶段**默认关**（游戏自己管手柄），但只要出现下面这些"UI 窗口"就把光标桥打开：
+# 登录窗、年龄提示、公告/活动弹窗、设置面板……（游戏本体自己不吃手柄，这些窗口手柄点不了）
+cursor_windows = [
+  "^(登录|Login|登入)",
+  "^Mpay",
+  "公告|通知|提示",
+  "^(设置|选项|Options|Settings)",
+  "实名|验证|码",
+  "确认|continue|Continue",
+]
+cursor_on_dialogs = true           # 保险：任何"弹窗类"窗口（WM_TRANSIENT_FOR 非 0）也开

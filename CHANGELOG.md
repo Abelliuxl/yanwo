@@ -2,6 +2,26 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [0.5.0-demo] - 2026-10-04
+
+游戏里的 UI 窗口也要能用光标（用户："登陆窗口也应该是要有模拟鼠标的，只有游戏的本体是不需要鼠标的"）。
+
+### Added
+- `[bridge] cursor_windows`（标题正则列表）+ `cursor_on_dialogs`（默认 true）：
+  **游戏本体阶段按窗口自动开关光标桥** —— 命中登录窗/公告/设置等，或出现任意弹窗
+  （`WM_TRANSIENT_FOR` 非 0）→ 切到 `cursor` 模式；只剩主窗口 → 切回 `off`
+- 输入桥新增 `cursor` 模式（动作与 `launcher` 相同），Hub 菜单仍是 `hub` 模式
+- `BridgeGate`：判定逻辑可单测（只剩主窗口/有弹窗/命中标题/忽略 IME 辅助窗 4 种情况）
+- 窗口守护改为**全程**运行：规则只观察前 `watch_seconds` 秒，桥门控一直评估到会话结束
+- 燕云配方配上登录/公告/设置等 `cursor_windows`
+
+### Fixed
+- `WM_TRANSIENT_FOR` 读不出来：32 位属性只有 4 字节，原来判 `len(raw) >= 8` 永远得到 0
+  （现在能正确识别"弹窗"，通用启发式才生效）
+
+### Tests
+- 32 项（新增 BridgeGate 4 项）
+
 ## [0.4.0-demo] - 2026-10-04
 
 窗口问题配置化（用户："这个优化点每个游戏都可能不一样，把它做成能拓展的配置模式"）。

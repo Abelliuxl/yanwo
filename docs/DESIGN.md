@@ -73,8 +73,9 @@ DONE → 显示 Hub → IDLE
 
 - 实现：`input/jsdevice.py`（读 /dev/input/js*，必须 select）、`mapper.py`（语义意图）、
   `cursor.py`（xdotool 输出）、`daemon.py`（线程 + 三模式切换）
-- **三模式**：`hub`（十字键/A/B 操作 Hub 菜单）、`launcher`（右摇杆=鼠标、A=左键、B=右键、Start=回车、X=Esc）、
-  `off`（游戏运行中，交给游戏自己的手柄支持）
+- **模式**：`hub`（十字键/A/B 操作 Hub 菜单）、`launcher`/`cursor`（左摇杆=光标、A=左键、B=右键、
+  Start=回车、X=Esc）、`off`（交给游戏自己的手柄支持）。
+  游戏阶段由**窗口门控**在 `cursor`/`off` 之间自动切换：出现登录窗/公告/任意弹窗 → 开，只剩主窗口 → 关
 - **多设备自动跟随**：Steam Input 可能用 EVIOCGRAB 抓住物理手柄，所以同时打开所有 js 设备，
   谁真的出事件就跟谁，并在切换时记日志（`read_many()` 一次 select 覆盖全部，别每台各等一次）
 - **光标轴**：左摇杆为主、右摇杆也认（一般手柄游戏都是左摇杆移光标）；Hub 里左摇杆/十字键是菜单导航

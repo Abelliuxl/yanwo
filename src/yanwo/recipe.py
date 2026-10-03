@@ -64,6 +64,16 @@ class Recipe:
         return bool(self.windows.get("enabled", bool(self.window_rules)))
 
     @property
+    def bridge_cursor_windows(self) -> list[str]:
+        """游戏阶段里，命中这些标题的窗口出现 → 开光标桥（登录窗之类）。"""
+        return list(self.bridge.get("cursor_windows", []))
+
+    @property
+    def bridge_cursor_on_dialogs(self) -> bool:
+        """出现任意弹窗就开光标桥（默认 true）。"""
+        return bool(self.bridge.get("cursor_on_dialogs", True))
+
+    @property
     def window_watch_seconds(self) -> float:
         return float(self.windows.get("watch_seconds", 120))
 

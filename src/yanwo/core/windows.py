@@ -61,9 +61,16 @@ class WindowInfo:
     w: int = 0
     h: int = 0
     mapped: bool = False
+    transient_for: int = 0        # 非 0 = 这是某个窗口的弹窗/对话框
+
+    @property
+    def is_dialog(self) -> bool:
+        return self.transient_for != 0
 
     def __str__(self) -> str:
-        return f"[{self.wid:#x}] {self.title or '?'} {self.w}x{self.h}+{self.x}+{self.y} pid={self.pid}"
+        kind = "弹窗" if self.is_dialog else "窗口"
+        return (f"[{self.wid:#x}] {kind} {self.title or '?'} "
+                f"{self.w}x{self.h}+{self.x}+{self.y} pid={self.pid}")
 
 
 class _X:
@@ -119,6 +126,7 @@ class _X:
         self._pid_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_WM_PID", 0)
         self._utf8_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"UTF8_STRING", 0)
         self._name_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_WM_NAME", 0)
+        self._transient_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"WM_TRANSIENT_FOR", 0)
 
     # ---- 查询 ----
     def _prop(self, wid: int, atom: int) -> tuple[bytes, int]:
@@ -195,7 +203,11 @@ class _X:
             if not title:
                 continue
             x, y, w, h = self._geom(wid)
-            out.append(WindowInfo(wid, title, self._pid(wid), x, y, w, h, self._mapped(wid)))
+            traw, _ = self._prop(wid, self._transient_atom)
+            # 32 位属性只有 4 字节，要补齐再解析（别判 len>=8）
+            transient = int.from_bytes(traw[:4].ljust(4, b"\0"), "little") if traw else 0
+            out.append(WindowInfo(wid, title, self._pid(wid), x, y, w, h,
+                                  self._mapped(wid), transient))
         return out
 
     def index_of(self, wid: int, wins: list[WindowInfo]) -> int:
@@ -272,6 +284,45 @@ def match_title(pattern: str, wins: list[WindowInfo], only_visible: bool = True)
     return out
 
 
+# 这些窗口永远不参与规则/门控（自家 Hub、WM、IME 辅助窗等）
+_IGNORE_TITLE = re.compile(r"^(燕窝|Yanwo|steamcompmgr|Default|Input$|QTrayIconMessageWindow)")
+
+
+def game_windows(wins: list[WindowInfo] | None = None) -> list[WindowInfo]:
+    """可见的、非辅助窗口（按底→顶顺序）。规则和光标门控都只看这个列表。"""
+    wins = list_windows() if wins is None else wins
+    return [w for w in wins if w.mapped and not (w.w <= 1 and w.h <= 1)
+            and not _IGNORE_TITLE.search(w.title)]
+
+
+@dataclass
+class BridgeGate:
+    """决定"游戏阶段要不要开光标桥"。
+
+    规则（配方 [bridge] 里声明）：
+      * cursor_windows：标题正则列表，命中任意一个就开
+      * cursor_on_dialogs：出现任意"弹窗/对话框"（WM_TRANSIENT_FOR 非 0）就开
+    默认只看游戏自己的窗口（game_windows()）。
+    """
+
+    cursor_windows: list[str] = field(default_factory=list)
+    cursor_on_dialogs: bool = True
+
+    def wants_cursor(self, wins: list[WindowInfo] | None = None) -> tuple[bool, str]:
+        ws = game_windows(wins)
+        if not ws:
+            return False, "没有可见窗口"
+        for pat in self.cursor_windows:
+            hit = match_title(pat, ws, only_visible=False)
+            if hit:
+                return True, f"命中窗口 {pat!r} → {hit[0].title}"
+        if self.cursor_on_dialogs:
+            dialogs = [w for w in ws if w.is_dialog]
+            if dialogs:
+                return True, f"有弹窗 → {dialogs[-1].title}"
+        return False, "只剩游戏主窗口"
+
+
 def describe(wins: list[WindowInfo]) -> str:
     return " | ".join(f"{w.title}({w.w}x{w.h})" for w in wins) or "（无）"
 
@@ -343,11 +394,15 @@ class WindowRules:
     """按优先级把一个"规则表"作用到游戏窗口上。"""
 
     def __init__(self, rules: list[dict], logger: logging.Logger | None = None,
-                 clicker=None, watch_seconds: float = 120.0) -> None:
+                 clicker=None, watch_seconds: float = 120.0,
+                 gate: "BridgeGate | None" = None, on_gate=None) -> None:
         self.rules = sorted(rules or [], key=lambda r: -int(r.get("priority", 0)))
         self.log = logger or log
         self.clicker = clicker
         self.watch_seconds = watch_seconds
+        self.gate = gate
+        self.on_gate = on_gate          # callable(bool needs_cursor, str why)
+        self._gate_state: bool | None = None
         self._seen: set[str] = set()
         self._last_apply: dict[str, float] = {}
         self._stop = threading.Event()
@@ -387,11 +442,26 @@ class WindowRules:
             if rule.get("stop", False):
                 break  # 默认所有匹配规则都执行；写 stop = true 表示"这条生效后不再往下看"
 
-    def run(self) -> None:
-        deadline = time.time() + self.watch_seconds
-        while not self._stop.is_set() and time.time() < deadline:
+    def _eval_gate(self) -> None:
+        if not self.gate or not self.on_gate:
+            return
+        want, why = self.gate.wants_cursor()
+        if want != self._gate_state:
+            self._gate_state = want
+            self.log.info("光标桥门控 -> %s（%s）", "开" if want else "关", why)
             try:
-                self.tick()
+                self.on_gate(want, why)
+            except Exception:  # noqa: BLE001
+                self.log.exception("切换光标桥失败")
+
+    def run(self) -> None:
+        """规则只在前 watch_seconds 秒生效；桥门控全程评估（直到会话结束）。"""
+        deadline = time.time() + self.watch_seconds
+        while not self._stop.is_set():
+            try:
+                if time.time() < deadline:
+                    self.tick()
+                self._eval_gate()
             except Exception:  # noqa: BLE001
                 self.log.exception("窗口规则执行出错")
             self._stop.wait(2.0)

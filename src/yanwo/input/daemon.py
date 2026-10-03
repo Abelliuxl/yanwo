@@ -20,6 +20,7 @@ from .profile import Profile, default_profile_path
 MODE_OFF = "off"
 MODE_HUB = "hub"
 MODE_LAUNCHER = "launcher"
+MODE_CURSOR = "cursor"   # 游戏阶段里遇到 UI 窗口时用（和 launcher 一样的动作）
 
 
 class InputDaemon(threading.Thread):
@@ -86,7 +87,7 @@ class InputDaemon(threading.Thread):
                         self.on_intent(kind, val)
                     except Exception:  # noqa: BLE001
                         self.log.exception("处理手柄意图失败")
-            else:
+            else:  # launcher / cursor（游戏里的登录窗、弹窗）
                 self._launcher_action(kind, val)
 
     def _launcher_action(self, kind: str, val: int) -> None:
@@ -164,10 +165,12 @@ class InputDaemon(threading.Thread):
                             self.connected = True
                             self.device_name = f"{active.path} {active.name}"
                             self._notify_status()
-                        nav = mapper.nav_step(allow_left_stick=self.mode != MODE_LAUNCHER)
+                        nav = mapper.nav_step(
+                            allow_left_stick=self.mode not in (MODE_LAUNCHER, MODE_CURSOR)
+                        )
                         if nav:
                             self._dispatch([("nav", nav)])
-                        if self.mode == MODE_LAUNCHER:
+                        if self.mode in (MODE_LAUNCHER, MODE_CURSOR):
                             vx, vy = mapper.cursor_velocity()
                             if vx or vy:
                                 self.cursor.move(

@@ -64,9 +64,13 @@ max_global_vram_pct = 92
 
 [bridge]                                # 输入桥（P2 已实现）
 enabled = true                          # false = 这个游戏全程不接管手柄
-active_when = ["hub", "launcher"]       # 哪些阶段需要桥（游戏运行阶段一律让位）
+active_when = ["hub", "launcher"]       # Hub / 官方启动器阶段一直开
 profile = "cursor_click"                # 语义档名（实际映射在 input/profiles/*.toml）
-backend = "xdotool"                     # 零 root；将来可加 uinput
+backend = "auto"                        # 自动：XTest → xdotool（零 root）
+
+# 游戏本体阶段默认"关"（尊重游戏自己的手柄支持），但只要出现"UI 窗口"就自动打开光标：
+cursor_windows = ["^(登录|Login)", "^Mpay", "公告|提示", "^(设置|Options)"]
+cursor_on_dialogs = true                # 通用启发式：任何弹窗（WM_TRANSIENT_FOR 非 0）也算
 ```
 
 ## 内置变量（不用定义就能用）
@@ -80,6 +84,17 @@ backend = "xdotool"                     # 零 root；将来可加 uinput
 | `${proton_dir}` | GE-Proton 目录（默认 `…/compatibilitytools.d/GE-Proton10-32`） |
 | `${proton_wine}` | `…/files/bin/wine` |
 | `${proton_lib}` | `…/files/lib` |
+
+## 输入桥的三个模式
+
+| 阶段 | 模式 | 手柄行为 |
+|---|---|---|
+| Hub 菜单 | `hub` | 十字键/左摇杆选择、A 启动、B 退出 |
+| 官方启动器 | `launcher` | 左摇杆=光标、A 左键、B 右键、Start 回车、X Esc |
+| **游戏本体（有 UI 窗口）** | `cursor` | 同上（登录窗、公告、设置面板手柄点不了） |
+| 游戏本体（只剩主窗口） | `off` | 完全不碰，交给游戏自己的手柄支持 |
+
+`cursor_windows` 命中或出现任意弹窗 → 从 `off` 切到 `cursor`；弹窗关掉只剩主窗口 → 切回 `off`。
 
 ## 窗口规则的动作支持情况（2026-10-04 实测）
 

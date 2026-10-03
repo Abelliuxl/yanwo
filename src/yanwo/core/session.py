@@ -152,17 +152,32 @@ class Session:
             self.ui.refresh()
 
     def _start_window_rules(self) -> None:
-        """启动窗口规则守护：每个游戏在配方 [windows] 里声明，代码不写死。"""
+        """启动窗口守护：① 执行配方里的窗口规则；② 全程评估"游戏阶段要不要开光标桥"。"""
         r = self.recipe
-        if not r.windows_enabled or not r.window_rules:
-            self.log.debug("没有 [windows] 规则，跳过")
+        gate = None
+        if r.bridge_cursor_windows or r.bridge_cursor_on_dialogs:
+            gate = windows.BridgeGate(
+                cursor_windows=r.bridge_cursor_windows,
+                cursor_on_dialogs=r.bridge_cursor_on_dialogs,
+            )
+        if not r.window_rules and gate is None:
+            self.log.debug("没有窗口规则/门控，跳过")
             return
         self._win_rules = windows.WindowRules(
             r.window_rules, logger=self.log, clicker=self.clicker,
             watch_seconds=r.window_watch_seconds,
+            gate=gate, on_gate=self._on_bridge_gate,
         )
-        self.log.info("窗口规则: %d 条，观察 %.0fs", len(r.window_rules), r.window_watch_seconds)
+        self.log.info("窗口守护: 规则 %d 条（观察 %.0fs），光标门控 %s",
+                      len(r.window_rules), r.window_watch_seconds,
+                      "开" if gate else "关")
         threading.Thread(target=self._win_rules.run, daemon=True, name="window-rules").start()
+
+    def _on_bridge_gate(self, want_cursor: bool, why: str) -> None:
+        """游戏阶段里，遇到登录窗/弹窗就开光标桥；只剩主窗口就关掉（游戏自己的手柄优先）。"""
+        if self.phase != Phase.GAME:
+            return  # 启动器/菜单阶段本来就是光标模式，不用它管
+        self._input("cursor" if want_cursor else "off")
 
     def _stop_window_rules(self) -> None:
         if self._win_rules:
