@@ -41,7 +41,7 @@ watch_seconds = 180                     # 进游戏后观察多久（窗口是�
 [[windows.rules]]
 name = "年龄提示压到底层"                  # 只用于日志
 match = "MpayAgeTipsForm"               # 标题正则（读的是 _NET_WM_NAME，UTF-8，中文可用）
-actions = ["lower"]                     # 见下面"动作支持情况"
+actions = ["activate"]                  # 见下面"动作支持情况"（game mode 只有 activate 能置前）
 priority = 20                           # 数字大的先执行
 repeat_seconds = 10                     # 可选：窗口集合没变也定期重申
 stop = false                            # 可选：true = 这条生效后不再往下匹配
@@ -104,8 +104,8 @@ pause_windows = []                      # 出现这些标题的窗口时自动�
 
 | 动作 | 写法 | game mode（gamescope） | desktop mode（KWin） |
 |---|---|---|---|
-| `activate` | **game mode 唯一有效的"置前"**（EWMH 请求，让 WM 自己去 raise）|
-| `lower` | `"lower"` | ✅ **有效**（把碍事的窗口压到最底，别的主窗口自然到前面） | ✅ |
+| `activate` | `"activate"` | ✅ **唯一有效的"置前"**（发 EWMH `_NET_ACTIVE_WINDOW`，WM 自己去 raise） | ✅ |
+| `lower` | `"lower"` | ❌ 被忽略（外部请求会被 WM 吞掉） | ✅ |
 | `close` | `"close"` | ✅ 发 WM_DELETE_WINDOW（让应用自己关） | ✅ |
 | `focus` | `"focus"` | ❌ 被忽略 | ✅ |
 | `raise` | `"raise"` | ❌ 被忽略 | ✅ |

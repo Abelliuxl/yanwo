@@ -83,24 +83,19 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 enabled = true
 watch_seconds = 180          # 进游戏后观察多久（窗口是陆续冒出来的）
 
-# 用户决定（2026-10-04）：**不要动年龄提示**（关掉它还会再冒出来），
+# 用户决定（2026-10-04）：**不要动年龄提示**（关掉还会再冒出来），
 # 改成"登录窗一出现就把它激活到最前" —— 年龄窗自然被压在后面，管它干嘛。
 #
-# activate = 给 WM 发 EWMH `_NET_ACTIVE_WINDOW` 客户端消息（"请把某窗口置前/激活"）。
-# 这是 game mode 下唯一可能奏效的路子：XRaiseWindow / XSetInputFocus 是我们自己动手改，
-# gamescope(steamcompmgr) 一律忽略；而 _NET_ACTIVE_WINDOW 是它会处理的请求。
+# activate = 给 WM 发 EWMH `_NET_ACTIVE_WINDOW`。**这是 game mode 下唯一有效的置前方式**：
+#   gamescope 收到后会调用*它自己*的 XRaiseWindow → restack_win()，连它内部的绘制列表
+#   一起重排（画面层级真的变）。而我们外部直接发 raise/lower 会被它重定向后吞掉。
+#   验证看堆叠索引（gamescope 从不把 _NET_ACTIVE_WINDOW 写到 root 上）。
 [[windows.rules]]
 name = "登录窗激活到最前"
 match = "^(登录|Login|登入)"
 actions = ["activate"]
 repeat_seconds = 6      # 没抢到就每 6 秒再请求一次，直到它真的在前
 priority = 30
-
-[[windows.rules]]
-name = "登录窗置前"
-match = "^(登录|Login)$"
-actions = ["focus"]          # desktop 下有效；game mode 下会被忽略（有回读日志，不会假装成功）
-priority = 10
 
 # ---------------- 输入桥（P2 实现） ----------------
 [bridge]
