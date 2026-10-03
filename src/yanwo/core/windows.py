@@ -1,0 +1,397 @@
+"""窗口规则引擎（每个游戏在配方里声明，不在代码里写死）。
+
+为什么需要它（2026-10-04 实测结论）：
+  * **game mode**：窗口的 **层级/位置完全由 gamescope(steamcompmgr) 掌管**，
+    外部客户端发 `XRaiseWindow` / `XMoveWindow` / `XSetInputFocus` / `XConfigureWindow`
+    **全部无效**（实测堆叠顺序和坐标纹丝不动）；`unmap+map` 也没用。
+  * **desktop mode**（KWin）：这些请求都正常生效。
+  * 所以规则引擎不假设"一定成功"，而是**执行后回读**，把"没生效"写进日志，
+    方便每个游戏各自试探哪种动作管用。
+
+配方里这样写（见 docs/RECIPES.md）：
+
+    [windows]
+    enabled = true
+    watch_seconds = 120
+    [[windows.rules]]
+    name = "年龄提示"
+    match = "MpayAgeTipsForm"      # 标题正则
+    actions = ["close"]            # 见 _ACTIONS
+    priority = 20
+    stop = false                   # 默认 false：所有匹配的规则都执行
+    [[windows.rules]]
+    name = "登录"
+    match = "^(登录|Login)"
+    actions = ["focus"]
+    priority = 10
+"""
+from __future__ import annotations
+
+import ctypes
+import logging
+import re
+import subprocess
+import threading
+import time
+from dataclasses import dataclass, field
+
+log = logging.getLogger("yanwo.windows")
+
+# 支持的动作（配方里 actions = [...] 写这些名字）
+_ACTIONS = {
+    "focus": "置前 + 请求输入焦点（desktop 下=KWin 生效；game mode 通常被忽略）",
+    "raise": "只置前（XRaiseWindow）",
+    "lower": "压到最底（XLowerWindow）",
+    "move:x,y": "移动窗口到 x,y",
+    "resize:w,h": "改变窗口大小",
+    "remap": "unmap 后重新 map（有些 WM 会把它当成新窗口放上层）",
+    "hide": "隐藏（unmap）",
+    "close": "发送关闭事件（等于点右上角 X，最礼貌的一种）",
+    "click": "把光标移到窗口中心并左键点一下（用 XTest，game mode 下也可能无效）",
+}
+
+
+@dataclass
+class WindowInfo:
+    wid: int
+    title: str = ""
+    pid: int = 0
+    x: int = 0
+    y: int = 0
+    w: int = 0
+    h: int = 0
+    mapped: bool = False
+
+    def __str__(self) -> str:
+        return f"[{self.wid:#x}] {self.title or '?'} {self.w}x{self.h}+{self.x}+{self.y} pid={self.pid}"
+
+
+class _X:
+    """极简 X11 封装（ctypes，无进程开销）。"""
+
+    def __init__(self, display: str | None = None) -> None:
+        self.lib = ctypes.CDLL("libX11.so.6")
+        L = self.lib
+        L.XOpenDisplay.restype = ctypes.c_void_p
+        L.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        L.XDefaultRootWindow.restype = ctypes.c_ulong
+        L.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        L.XQueryTree.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        L.XFetchName.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_char_p)]
+        L.XInternAtom.restype = ctypes.c_ulong
+        L.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        L.XGetWindowProperty.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_long, ctypes.c_long,
+            ctypes.c_int, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+        ]
+        L.XGetGeometry.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint),
+            ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint),
+        ]
+        L.XFlush.argtypes = [ctypes.c_void_p]
+        L.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
+        for fn, argtypes in (
+            ("XRaiseWindow", [ctypes.c_void_p, ctypes.c_ulong]),
+            ("XLowerWindow", [ctypes.c_void_p, ctypes.c_ulong]),
+            ("XMoveWindow", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]),
+            ("XResizeWindow", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_uint, ctypes.c_uint]),
+            ("XUnmapWindow", [ctypes.c_void_p, ctypes.c_ulong]),
+            ("XMapWindow", [ctypes.c_void_p, ctypes.c_ulong]),
+            ("XSetInputFocus", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]),
+        ):
+            f = getattr(L, fn)
+            f.restype = ctypes.c_int
+            f.argtypes = argtypes
+        self.dpy = L.XOpenDisplay(display.encode() if display else None)
+        if not self.dpy:
+            raise RuntimeError("XOpenDisplay 失败")
+        self.root = L.XDefaultRootWindow(ctypes.c_void_p(self.dpy))
+        L.XGetWindowProperty.restype = ctypes.c_int
+        L.XFree.argtypes = [ctypes.c_void_p]
+        self._pid_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_WM_PID", 0)
+        self._utf8_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"UTF8_STRING", 0)
+        self._name_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_WM_NAME", 0)
+
+    # ---- 查询 ----
+    def _prop(self, wid: int, atom: int) -> tuple[bytes, int]:
+        """XGetWindowProperty 的正确参数顺序（少传 actual_format 会整串错位，标题会截断）。"""
+        actual = ctypes.c_ulong()
+        fmt = ctypes.c_int()
+        nitems = ctypes.c_ulong()
+        after = ctypes.c_ulong()
+        data = ctypes.POINTER(ctypes.c_ubyte)()
+        ok = self.lib.XGetWindowProperty(
+            ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), ctypes.c_ulong(atom),
+            0, 1024, 0, 0,
+            ctypes.byref(actual), ctypes.byref(fmt), ctypes.byref(nitems),
+            ctypes.byref(after), ctypes.byref(data),
+        )
+        if ok != 0 or not data or nitems.value == 0:
+            return b"", 0
+        nbytes = nitems.value * (fmt.value // 8 or 1)
+        return ctypes.string_at(data, nbytes), fmt.value
+
+    def _raw_prop(self, wid: int, atom: int) -> bytes:
+        return self._prop(wid, atom)[0]
+
+    def _name(self, wid: int) -> str:
+        """优先 _NET_WM_NAME（UTF-8，中文才不会变成 ??），退路 WM_NAME。"""
+        raw = self._raw_prop(wid, self._name_atom)
+        if raw:
+            return raw.decode("utf-8", "replace").strip("\x00").strip()
+        nm = ctypes.c_char_p()
+        if self.lib.XFetchName(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), ctypes.byref(nm)) and nm.value:
+            return nm.value.decode("utf-8", "replace").strip()
+        return ""
+
+    def _pid(self, wid: int) -> int:
+        raw, fmt = self._prop(wid, self._pid_atom)
+        if raw and fmt == 32:
+            return int.from_bytes(raw[:8], "little")
+        return 0
+
+    # XWindowAttributes 里 map_state 在 x86_64 上的偏移。
+    # 结构体开头是 x,y,width,height,border_width,depth,Visual*,Window,int,int,... —— 偏移 92 实测正确
+    # （0=IsUnmapped 1=IsUnviewable 2=IsViewable）。
+    _MAP_STATE_OFFSET = 92
+
+    def _mapped(self, wid: int) -> bool:
+        buf = ctypes.create_string_buffer(256)
+        if self.lib.XGetWindowAttributes(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), buf) == 0:
+            return False
+        return ctypes.c_int.from_buffer(buf, self._MAP_STATE_OFFSET).value == 2
+
+    def _geom(self, wid: int):
+        root = ctypes.c_ulong(); x = ctypes.c_int(); y = ctypes.c_int()
+        w = ctypes.c_uint(); h = ctypes.c_uint(); bw = ctypes.c_uint(); depth = ctypes.c_uint()
+        if self.lib.XGetGeometry(
+            ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), ctypes.byref(root),
+            ctypes.byref(x), ctypes.byref(y), ctypes.byref(w), ctypes.byref(h),
+            ctypes.byref(bw), ctypes.byref(depth),
+        ):
+            return x.value, y.value, w.value, h.value
+        return 0, 0, 0, 0
+
+    def list(self) -> list[WindowInfo]:
+        r = ctypes.c_ulong(); c_ = ctypes.c_ulong()
+        p = ctypes.POINTER(ctypes.c_ulong)(); n = ctypes.c_uint()
+        if not self.lib.XQueryTree(
+            ctypes.c_void_p(self.dpy), ctypes.c_ulong(self.root),
+            ctypes.byref(r), ctypes.byref(c_), ctypes.byref(p), ctypes.byref(n),
+        ):
+            return []
+        out = []
+        for i in range(n.value):  # X 返回：底 → 顶
+            wid = int(p[i])
+            title = self._name(wid)
+            if not title:
+                continue
+            x, y, w, h = self._geom(wid)
+            out.append(WindowInfo(wid, title, self._pid(wid), x, y, w, h, self._mapped(wid)))
+        return out
+
+    def index_of(self, wid: int, wins: list[WindowInfo]) -> int:
+        for i, w in enumerate(wins):
+            if w.wid == wid:
+                return i
+        return -1
+
+    # ---- 动作 ----
+    def raise_(self, wid: int) -> None:
+        self.lib.XRaiseWindow(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid))
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+    def lower(self, wid: int) -> None:
+        self.lib.XLowerWindow(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid))
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+    def move(self, wid: int, x: int, y: int) -> None:
+        self.lib.XMoveWindow(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), x, y)
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+    def resize(self, wid: int, w: int, h: int) -> None:
+        self.lib.XResizeWindow(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), w, h)
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+    def unmap(self, wid: int) -> None:
+        self.lib.XUnmapWindow(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid))
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+    def map_(self, wid: int) -> None:
+        self.lib.XMapWindow(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid))
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+    def focus(self, wid: int) -> None:
+        self.raise_(wid)
+        self.lib.XSetInputFocus(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), 2, 0)
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
+
+_conn: _X | None = None
+_conn_lock = threading.Lock()
+
+
+def connection(display: str | None = None) -> _X | None:
+    global _conn
+    with _conn_lock:
+        if _conn is None:
+            try:
+                _conn = _X(display)
+            except Exception as e:  # noqa: BLE001
+                log.warning("连 X 失败: %s", e)
+                return None
+    return _conn
+
+
+def list_windows() -> list[WindowInfo]:
+    c = connection()
+    return c.list() if c else []
+
+
+def match_title(pattern: str, wins: list[WindowInfo], only_visible: bool = True) -> list[WindowInfo]:
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        log.warning("规则标题正则写错了 %r: %s", pattern, e)
+        return []
+    out = []
+    for w in wins:
+        if not rx.search(w.title):
+            continue
+        if only_visible and (not w.mapped or (w.w <= 1 and w.h <= 1)):
+            continue  # IME/托盘等 1x1 辅助窗口别误伤
+        out.append(w)
+    return out
+
+
+def describe(wins: list[WindowInfo]) -> str:
+    return " | ".join(f"{w.title}({w.w}x{w.h})" for w in wins) or "（无）"
+
+
+def apply_actions(win: WindowInfo, actions: list[str], clicker=None) -> list[str]:
+    """执行动作并**回读验证**，返回每条的结果说明（含"没生效"）。"""
+    c = connection()
+    if c is None:
+        return ["连不上 X"]
+    results: list[str] = []
+    for act in actions:
+        before = [w for w in c.list() if w.wid == win.wid]
+        idx_before = c.index_of(win.wid, c.list())
+        try:
+            if act == "focus":
+                c.focus(win.wid)
+            elif act == "raise":
+                c.raise_(win.wid)
+            elif act == "lower":
+                c.lower(win.wid)
+            elif act.startswith("move:"):
+                x, y = (int(v) for v in act.split(":", 1)[1].split(","))
+                c.move(win.wid, x, y)
+            elif act.startswith("resize:"):
+                w, h = (int(v) for v in act.split(":", 1)[1].split(","))
+                c.resize(win.wid, w, h)
+            elif act == "remap":
+                c.unmap(win.wid)
+                time.sleep(0.2)
+                c.map_(win.wid)
+            elif act == "hide":
+                c.unmap(win.wid)
+            elif act == "close":
+                subprocess.run(["xdotool", "windowclose", hex(win.wid)],
+                               capture_output=True, timeout=5)
+            elif act == "click":
+                if clicker is not None:
+                    clicker.move(win.w.w / 2 - win.x, win.h / 2 - win.y)
+                    time.sleep(0.2)
+                    clicker.click(1)
+                else:
+                    results.append("click：(没有光标后端)")
+                    continue
+            else:
+                results.append(f"{act}：未知动作")
+                continue
+        except Exception as e:  # noqa: BLE001
+            results.append(f"{act}：异常 {e}")
+            continue
+        time.sleep(0.25)
+        after = [w for w in c.list() if w.wid == win.wid]
+        idx_after = c.index_of(win.wid, c.list())
+        if act == "click":
+            results.append("click：已点（效果无法回读）")
+        elif act == "close":
+            results.append("close：已发送关闭事件" + ("" if after else "（窗口已消失）"))
+        elif not after:
+            results.append(f"{act}：窗口已消失")
+        elif act in ("focus", "raise") and idx_after <= idx_before:
+            results.append(f"{act}：**没生效**（层级 {idx_before}→{idx_after}，gamescope 会忽略外部请求）")
+        elif act.startswith("move:") and before and after and (after[0].x, after[0].y) == (before[0].x, before[0].y):
+            results.append(f"{act}：**没生效**（坐标没变，被 WM 忽略）")
+        else:
+            results.append(f"{act}：OK")
+    return results
+
+
+class WindowRules:
+    """按优先级把一个"规则表"作用到游戏窗口上。"""
+
+    def __init__(self, rules: list[dict], logger: logging.Logger | None = None,
+                 clicker=None, watch_seconds: float = 120.0) -> None:
+        self.rules = sorted(rules or [], key=lambda r: -int(r.get("priority", 0)))
+        self.log = logger or log
+        self.clicker = clicker
+        self.watch_seconds = watch_seconds
+        self._seen: set[str] = set()
+        self._last_apply: dict[str, float] = {}
+        self._stop = threading.Event()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _titles(self, wins: list[WindowInfo]) -> set[str]:
+        return {w.title for w in wins}
+
+    def tick(self) -> None:
+        wins = list_windows()
+        titles = self._titles(wins)
+        changed = titles != self._seen
+        if changed:
+            new = titles - self._seen
+            self._seen = titles
+            if new:
+                self.log.info("窗口变化: %s", describe(wins))
+        now = time.time()
+        for rule in self.rules:
+            if not rule.get("enabled", True):
+                continue
+            key = str(rule.get("name") or rule.get("match"))
+            repeat = float(rule.get("repeat_seconds", 0) or 0)
+            due = changed or (repeat > 0 and now - self._last_apply.get(key, 0) >= repeat)
+            if not due:
+                continue
+            hits = match_title(rule.get("match", ""), wins)
+            if not hits:
+                continue
+            self._last_apply[key] = now
+            acts = list(rule.get("actions", []))
+            for win in hits:
+                res = apply_actions(win, acts, self.clicker)
+                self.log.info("窗口规则「%s」→ %s : %s", key, win, "; ".join(res))
+            if rule.get("stop", False):
+                break  # 默认所有匹配规则都执行；写 stop = true 表示"这条生效后不再往下看"
+
+    def run(self) -> None:
+        deadline = time.time() + self.watch_seconds
+        while not self._stop.is_set() and time.time() < deadline:
+            try:
+                self.tick()
+            except Exception:  # noqa: BLE001
+                self.log.exception("窗口规则执行出错")
+            self._stop.wait(2.0)

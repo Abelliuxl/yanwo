@@ -73,6 +73,29 @@ window_seconds = 60
 max_global_vram_pct = 92
 graceful_close_first = true        # 先发窗口关闭事件再杀（否则下载缓存被判损坏 → 重下 125G）
 
+# ---------------- 窗口规则（每个游戏都可能不一样 → 在配方里声明，代码不写死） ----------------
+# 实测支持情况（2026-10-04）：
+#   game mode：只有 lower / close 这类"不依赖 WM 重排"的动作有效；
+#              raise / focus / move / resize / remap 会被 gamescope(steamcompmgr) 忽略，
+#              引擎会把"没生效"写进日志（见 docs/DEV-NOTES.md 14）。
+#   desktop mode（KWin）：全部有效。
+[windows]
+enabled = true
+watch_seconds = 180          # 进游戏后观察多久（窗口是陆续冒出来的）
+
+[[windows.rules]]
+name = "年龄提示压到底层"
+match = "MpayAgeTipsForm"
+actions = ["lower"]
+repeat_seconds = 10          # 游戏有时会再把它抬上来，定期重申
+priority = 20
+
+[[windows.rules]]
+name = "登录窗置前"
+match = "^(登录|Login)$"
+actions = ["focus"]          # desktop 下有效；game mode 下会被忽略（有回读日志，不会假装成功）
+priority = 10
+
 # ---------------- 输入桥（P2 实现） ----------------
 [bridge]
 active_when = ["hub", "launcher"]  # 游戏运行时关掉，交给游戏自己的手柄支持

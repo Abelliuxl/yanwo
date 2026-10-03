@@ -13,11 +13,12 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import threading
 import time
 from enum import Enum
 
 from ..recipe import Recipe
-from . import detect, runner, x11
+from . import detect, runner, x11, windows
 from .safety import VramMonitor, external_guard_active
 
 
@@ -41,6 +42,8 @@ class Session:
         self._stop = False
         self._reason = ""
         self._monitor: VramMonitor | None = None
+        self._win_rules: windows.WindowRules | None = None
+        self.clicker = None  # 由 Hub 注入（手柄光标后端），规则里的 click 动作要用
         self._procs: list = []  # 自己起的子进程，需要主动回收（否则变僵尸）
 
     # ---------- 对外 ----------
@@ -85,6 +88,7 @@ class Session:
     def cleanup(self) -> None:
         """收尾：先优雅关窗，再（必要时）整组清掉。"""
         self._set_phase(Phase.DONE)
+        self._stop_window_rules()
         if self._monitor:
             self._monitor.stop()
         self._reap()
@@ -132,6 +136,7 @@ class Session:
             self.log.info("隐藏 Hub 窗口，让位给官方启动器")
             self.ui.hide()  # 让位给官方启动器窗口
             self._input("launcher")  # 现在开始：右摇杆 = 鼠标
+            self._start_window_rules()
             self.log.info("进入等待循环")
             self._wait_loop()
         except Exception as e:  # noqa: BLE001
@@ -145,6 +150,24 @@ class Session:
             self.ui.show()
             self._status("")
             self.ui.refresh()
+
+    def _start_window_rules(self) -> None:
+        """启动窗口规则守护：每个游戏在配方 [windows] 里声明，代码不写死。"""
+        r = self.recipe
+        if not r.windows_enabled or not r.window_rules:
+            self.log.debug("没有 [windows] 规则，跳过")
+            return
+        self._win_rules = windows.WindowRules(
+            r.window_rules, logger=self.log, clicker=self.clicker,
+            watch_seconds=r.window_watch_seconds,
+        )
+        self.log.info("窗口规则: %d 条，观察 %.0fs", len(r.window_rules), r.window_watch_seconds)
+        threading.Thread(target=self._win_rules.run, daemon=True, name="window-rules").start()
+
+    def _stop_window_rules(self) -> None:
+        if self._win_rules:
+            self._win_rules.stop()
+            self._win_rules = None
 
     def _input(self, mode: str) -> None:
         if self.on_input_mode:

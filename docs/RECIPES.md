@@ -35,6 +35,18 @@ dll_paths = ["${proton_lib}/wine/vkd3d-proton"]  # → WINEDLLPATH（: 连接）
 [steps.env]                             # 附加环境变量（Windows 进程也能看到）
 QT_OPENGL = "software"
 
+[windows]                               # 窗口规则（每个游戏都不一样，全在这里声明）
+enabled = true
+watch_seconds = 180                     # 进游戏后观察多久（窗口是陆续冒出来的）
+[[windows.rules]]
+name = "年龄提示压到底层"                  # 只用于日志
+match = "MpayAgeTipsForm"               # 标题正则（读的是 _NET_WM_NAME，UTF-8，中文可用）
+actions = ["lower"]                     # 见下面"动作支持情况"
+priority = 20                           # 数字大的先执行
+repeat_seconds = 10                     # 可选：窗口集合没变也定期重申
+stop = false                            # 可选：true = 这条生效后不再往下匹配
+enabled = true                          # 可选：false = 临时关掉这条
+
 [detect]                                # 状态机用它识别人物（进程名，忽略大小写）
 launcher_procs = ["launcher.exe"]       # 官方启动器
 game_procs = ["yysls.exe"]              # 游戏本体
@@ -68,6 +80,25 @@ backend = "xdotool"                     # 零 root；将来可加 uinput
 | `${proton_dir}` | GE-Proton 目录（默认 `…/compatibilitytools.d/GE-Proton10-32`） |
 | `${proton_wine}` | `…/files/bin/wine` |
 | `${proton_lib}` | `…/files/lib` |
+
+## 窗口规则的动作支持情况（2026-10-04 实测）
+
+引擎执行每条动作后会**回读验证**，把"没生效"写进日志，所以不同游戏可以自己试。
+
+| 动作 | 写法 | game mode（gamescope） | desktop mode（KWin） |
+|---|---|---|---|
+| `lower` | `"lower"` | ✅ **有效**（把碍事的窗口压到最底，别的主窗口自然到前面） | ✅ |
+| `close` | `"close"` | ✅ 发 WM_DELETE_WINDOW（让应用自己关） | ✅ |
+| `focus` | `"focus"` | ❌ 被忽略 | ✅ |
+| `raise` | `"raise"` | ❌ 被忽略 | ✅ |
+| `move` | `"move:0,0"` | ❌ 被忽略 | ✅ |
+| `resize` | `"resize:1280,720"` | ❌ 被忽略 | ✅ |
+| `remap` | `"remap"` | ❌ 被忽略 | 视 WM |
+| `hide` | `"hide"` | 未实测 | ✅ |
+| `click` | `"click"` | 走 XTest 点击窗口中心（是否有效取决于窗口是否拿到输入） | ✅ |
+
+> 结论：**game mode 里想让"登录窗在前"，最靠谱的办法是 `lower` 把那个碍事的小窗压到底**，
+> 而不是去 raise 登录窗。
 
 ## 约定与注意事项
 

@@ -2,6 +2,32 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [0.4.0-demo] - 2026-10-04
+
+窗口问题配置化（用户："这个优化点每个游戏都可能不一样，把它做成能拓展的配置模式"）。
+
+### Added
+- **窗口规则引擎** `core/windows.py`：
+  - 纯 ctypes 直连 X11 读窗口（标题/pid/几何/映射状态），无进程开销
+  - 规则来自配方 `[windows]`：`match`(标题正则) / `actions` / `priority` / `stop` / `repeat_seconds` / `enabled`
+  - 动作：`lower`（**game mode 实测唯一有效**）/ `close` / `focus` / `raise` / `move:x,y` /
+    `resize:w,h` / `remap` / `hide` / `click`
+  - **每条动作执行后回读验证**，把"没生效"写进日志（不会假装成功）
+  - 默认只作用于可见、非 1x1 的窗口；窗口集合变化或到 `repeat_seconds` 时触发
+- 燕云配方加了 `[windows]`：`MpayAgeTipsForm` → `lower`（年龄提示压底，登录窗自然在前）；
+  `登录` → `focus`（desktop 有效）
+
+### Fixed
+- `XGetWindowProperty` 少传 `actual_format` 参数导致**标题被截断/乱码**（现在读 `_NET_WM_NAME`，中文正常）
+- 窗口列表过滤 IME/托盘等 1x1 隐藏窗口（`map_state` 偏移 92 实测确认）
+
+### Docs
+- RECIPES：`[windows]` 参考 + **动作支持情况对照表**（game mode vs desktop mode）
+- DEV-NOTES 14/15：gamescope 只管自己的窗口布局；X11 读窗口的两个坑
+
+### Tests
+- 27 项（新增：窗口标题匹配/中文/隐藏窗口过滤/坏正则不炸/优先级排序）
+
 ## [0.3.0-demo] - 2026-10-04
 
 按实机反馈修的三点（P2 手感/逻辑）。

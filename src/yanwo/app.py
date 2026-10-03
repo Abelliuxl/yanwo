@@ -84,6 +84,7 @@ class HubApp:
         self.session = Session(
             recipe, self.ui, self.log, on_input_mode=self._on_input_mode
         )
+        self.session.clicker = self.input.cursor  # 供窗口规则里的 click 动作使用
         threading.Thread(
             target=self.session.run, daemon=True, name=f"session-{recipe.id}"
         ).start()

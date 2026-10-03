@@ -36,6 +36,7 @@ class Recipe:
     policy: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
     bridge: dict[str, Any] = field(default_factory=dict)
+    windows: dict[str, Any] = field(default_factory=dict)
     install: dict[str, Any] = field(default_factory=dict)
     vars: dict[str, Any] = field(default_factory=dict)
     dir: Path | None = None
@@ -52,6 +53,19 @@ class Recipe:
 
     def policy_get(self, key: str, default: Any = None) -> Any:
         return self.policy.get(key, default)
+
+    @property
+    def window_rules(self) -> list[dict[str, Any]]:
+        """[windows].rules —— 每个游戏自己声明怎么处理它的窗口。"""
+        return list(self.windows.get("rules", []))
+
+    @property
+    def windows_enabled(self) -> bool:
+        return bool(self.windows.get("enabled", bool(self.window_rules)))
+
+    @property
+    def window_watch_seconds(self) -> float:
+        return float(self.windows.get("watch_seconds", 120))
 
 
 def _resolve_ctx(ctx: dict[str, str], rounds: int = 5) -> dict[str, str]:
@@ -123,6 +137,7 @@ def load_recipe(path: Path) -> Recipe:
         policy=raw.get("policy", {}),
         safety=raw.get("safety", {}),
         bridge=raw.get("bridge", {}),
+        windows=raw.get("windows", {}),
         install=raw.get("install", {}),
         vars=raw.get("vars", {}),
         dir=path.parent,

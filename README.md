@@ -28,6 +28,25 @@
 - 如果手柄完全没反应：多半是 **Steam Input 抢住了物理设备** → 在 Steam 库里给燕窝这条
   快捷方式把 Steam Input 关掉（属性 → 控制器）
 
+## 窗口规则（P3 已完成·配置化）
+
+有些游戏（比如燕云）会一次冒出好几个窗口（年龄提示 / 登录 / 主窗口），顺序还不一定合心意。
+燕窝让**每个游戏在配方里声明**怎么处置：
+
+```toml
+[windows]
+enabled = true
+[[windows.rules]]
+name = "年龄提示压到底层"
+match  = "MpayAgeTipsForm"
+actions = ["lower"]        # game mode 下实测唯一有效的动作
+priority = 20
+repeat_seconds = 10
+```
+
+引擎执行后**回读验证**，日志里会写 `lower：OK` 或 `focus：**没生效**（gamescope 会忽略外部请求）`，
+所以每个游戏都能自己试出哪种动作管用。动作表见 [docs/RECIPES.md](docs/RECIPES.md)。
+
 ## 还不能做（P3+）
 
 - 自动安装游戏（`[install]` 只记录）

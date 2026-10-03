@@ -115,3 +115,32 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
 - 做"自创光标覆盖层"要软件渲染一个常驻窗口 + 把真光标设成全透明，容易留下"光标消失"的坑；
 - 收益小（用户 2026-10-04 实测：原装光标完全够用），所以不做。
 桥只负责**移动**光标（XTest）和**点击**（XTest button events）。
+
+## 14. game mode 下窗口不是你能随便摆的（2026-10-04 实测）
+
+**结论**：game mode 时游戏跑在 gamescope 自己的 X display 上（本机是 `:1`，Steam UI 在 `:0`，
+从进程的 `DISPLAY` 环境就能看出来），窗口的**层级/位置完全由 gamescope(steamcompmgr) 掌管**：
+
+| 尝试 | 结果 |
+|---|---|
+| `XRaiseWindow` / `xdotool windowraise` | ❌ 堆叠顺序纹丝不动 |
+| `XSetInputFocus` / `xdotool windowactivate` | ❌ 无效（root 上没有 `_NET_ACTIVE_WINDOW`，EWMH 不完整） |
+| `XMoveWindow` / `XResizeWindow` | ❌ 坐标/尺寸不变 |
+| `unmap` + `map`（假装新窗口） | ❌ 顺序不变 |
+| **`XLowerWindow`** | ✅ **有效** |
+
+所以处理"某个小弹窗挡在前面"的正确姿势是 **`lower` 那个碍事的窗口**（用户实测：燕云的
+`MpayAgeTipsForm` 压到底后，`登录` 窗自然到最前）。desktop 模式下 KWin 则全都支持。
+
+引擎（`core/windows.py`）对每条动作**回读验证**并记日志，避免"以为成功其实没生效"。
+
+## 15. 读窗口信息踩的两个坑
+
+1. **`XGetWindowProperty` 参数顺序**：12 个参数里少传 `actual_format` 会整串错位，
+   `nitems` 读到的是 format（8）→ **标题被截成前 8 个字符**（"MpayAgeTipsForm" 变 "MpayAgeT"）。
+   正确签名：`(dpy, w, prop, off, len, delete, req_type, &actual_type, &actual_format,
+   &nitems, &bytes_after, &prop_return)`。
+2. **中文标题要读 `_NET_WM_NAME`（UTF8_STRING）**，不要用 `XFetchName`（那是 `WM_NAME`，
+   中文会变成 `??`）。Wine 两个都会设。
+3. `XWindowAttributes` 的 `map_state` 在 x86_64 上偏移 **92**（0=Unmapped 1=Unviewable 2=Viewable），
+   用它过滤掉 IME/托盘那种 1x1 辅助窗口。
