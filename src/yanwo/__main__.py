@@ -43,15 +43,35 @@ def _cmd_calibrate(_args) -> int:
     from .input.jsdevice import list_devices, pick_device
     from .input.profile import PROFILE_DIR, Profile, default_profile_path
 
+    # 谁打开了这些设备？（Steam Input 会在里面）
+    import glob as _glob
+
+    holders: dict[str, list[str]] = {}
+    for pdir in _glob.glob("/proc/[0-9]*"):
+        try:
+            comm = open(pdir + "/comm").read().strip()
+        except OSError:
+            continue
+        for fd in _glob.glob(pdir + "/fd/*"):
+            try:
+                link = os.readlink(fd)
+            except OSError:
+                continue
+            if "/dev/input/js" in link:
+                holders.setdefault(link, []).append(comm)
+
     devs = list_devices()
     print("[calibrate] 发现的设备：")
     for path, name in devs:
-        print(f"    {path:<20} {name}")
+        who = ", ".join(sorted(set(holders.get(path, []))))
+        print(f"    {path:<20} {name}" + (f"   ← 已被打开: {who}" if who else ""))
     if not devs:
         print("[calibrate] 没有 /dev/input/js*（手柄没插好？）")
         return 1
     p = Profile.load(default_profile_path())
     print(f"[calibrate] 当前映射档：{p.name}（{default_profile_path() or PROFILE_DIR/'（默认）'}）")
+    print("[calibrate] 提示：如果某个设备被 steam/steamwebhelper 打开，说明 Steam Input 可能在抓它；")
+    print("            那就到 Steam 库里给「燕窝 Yanwo」把 Steam Input 关掉（属性 → 控制器）。")
     print("[calibrate] 现在动一下手柄（推右摇杆、按 A/B/十字键）……最多等 15 秒")
     dev = pick_device(probe_timeout=15)
     if not dev:
