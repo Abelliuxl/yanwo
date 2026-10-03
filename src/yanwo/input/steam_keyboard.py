@@ -33,7 +33,7 @@ class SteamKeyboard:
             raise RuntimeError("Steam 未接受虚拟键盘请求")
 
     def focused_edit(self, recipe):
-        """查询同一 Wine 前缀中鼠标点击后得到焦点的可编辑控件，只读取几何信息。"""
+        """检测点击后的编辑控件，准备其输入焦点；不读取文本内容。"""
         step = next((s for s in recipe.steps if s.kind == "wine"), None)
         if step is None:
             return None
