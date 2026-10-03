@@ -18,6 +18,23 @@ def _read(path: str) -> bytes:
         return b""
 
 
+def _is_zombie(pid_dir: str) -> bool:
+    """僵尸进程的 /proc/<pid>/comm 仍然存在！不跳过的话，杀掉的进程会被当成“还活着”。"""
+    try:
+        with open(pid_dir + "/stat") as f:
+            data = f.read()
+        state = data.rsplit(")", 1)[1].split()[0]
+        return state in ("Z", "X", "x")
+    except (OSError, IndexError):
+        return True  # 拿不到就当它已经没了
+
+
+def _proc_name(pid_dir: str) -> str:
+    if _is_zombie(pid_dir):
+        return ""
+    return _read(pid_dir + "/comm").decode("utf-8", "replace").strip()
+
+
 def procs_of_prefix(prefix_hint: str) -> dict[int, str]:
     """返回 {pid: 进程名}，只含 WINEPREFIX 里带 prefix_hint 的进程。"""
     hint = prefix_hint.encode()
@@ -33,7 +50,9 @@ def procs_of_prefix(prefix_hint: str) -> dict[int, str]:
             kv.startswith(b"WINEPREFIX=") and hint in kv for kv in env.split(b"\0")
         ):
             continue
-        comm = _read(p + "/comm").decode("utf-8", "replace").strip()
+        comm = _proc_name(p)
+        if not comm:
+            continue
         out[pid] = comm
     return out
 
@@ -51,7 +70,7 @@ def _all_procs() -> dict[int, str]:
     out: dict[int, str] = {}
     for p in glob.glob("/proc/[0-9]*"):
         pid = int(p.rsplit("/", 1)[1])
-        c = _read(p + "/comm").decode("utf-8", "replace").strip()
+        c = _proc_name(p)
         if c:
             out[pid] = c
     return out

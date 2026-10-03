@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 import sys
 
 from .app import HubApp
 from .core.session import Session
 from .log import get_logger
+from .paths import LOG_DIR
 from .recipe import find_recipe, load_recipes
 from .ui.console import ConsoleUI
 from .ui.text_menu import TextMenuUI
@@ -81,7 +84,15 @@ def main(argv: list[str] | None = None) -> int:
     if not recipes:
         print("recipes/ 里没有配方，先加一个 recipes/<id>/game.toml", file=sys.stderr)
         return 1
-    HubApp(recipes, fullscreen=args.fullscreen).run()
+    # 从 Steam（或桌面入口加 --fullscreen）启动时，自动全屏——比依赖 LaunchOptions 稳
+    fullscreen = args.fullscreen or bool(os.environ.get("SteamGameId") or os.environ.get("SteamAppId"))
+    try:
+        HubApp(recipes, fullscreen=fullscreen).run()
+    except Exception as e:  # noqa: BLE001
+        # 图形环境起不来时至少留下清楚的日志（方便在游戏模式里排查）
+        logging.getLogger("yanwo").exception("Hub 启动失败: %s", e)
+        print(f"燕窝 Yanwo 启动失败: {e}\n详见 {LOG_DIR}/yanwo.log", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -96,15 +96,16 @@ def app_id(exe: str, name: str) -> int:
     return (zlib.crc32(('"%s"' % exe).encode() + name.encode()) & 0xFFFFFFFF) | 0x80000000
 
 
-def make_entry(name: str, exe: str, appid: int, startdir: str = "", overlay: int = 0) -> dict:
+def make_entry(name: str, exe: str, appid: int, startdir: str = "",
+               overlay: int = 0, launch_options: str = "", icon: str = "") -> dict:
     return {
         "appid": ("int", appid),
         "AppName": ("str", name),
         "Exe": ("str", '"%s"' % exe),
         "StartDir": ("str", '"%s"' % (startdir or os.path.dirname(exe))),
-        "icon": ("str", ""),
+        "icon": ("str", icon),
         "ShortcutPath": ("str", ""),
-        "LaunchOptions": ("str", ""),
+        "LaunchOptions": ("str", launch_options),
         "IsHidden": ("int", 0),
         "AllowDesktopConfig": ("int", 1),
         "AllowOverlay": ("int", overlay),
@@ -189,7 +190,9 @@ def cmd_add(a) -> int:
     entries = load(shortcuts_path(profiles()[0]))
     aid = app_id(exe, a.name)
     key = by_name(entries, a.name) or (str(max([int(k) for k in entries] or [-1]) + 1))
-    entries[key] = ("map", make_entry(a.name, exe, aid, a.startdir or "", a.overlay))
+    entries[key] = ("map", make_entry(a.name, exe, aid, a.startdir or "", a.overlay,
+                                      getattr(a, "launch_options", "") or "",
+                                      os.path.expanduser(getattr(a, "icon", "") or "")))
     print(f"[+] {a.name}  appid={aid} (0x{aid:08x})  overlay={a.overlay}")
     return _write(entries)
 
@@ -247,7 +250,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="燕窝 Yanwo 的 Steam 快捷方式工具")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("list")
+    sl = sub.add_parser("list")
+    sl.set_defaults(fn=cmd_list)
 
     for nm, fn in (("add", cmd_add), ("repoint", cmd_repoint)):
         sp = sub.add_parser(nm)
@@ -256,6 +260,8 @@ def main() -> int:
         sp.add_argument("--startdir", default="")
         if nm == "add":
             sp.add_argument("--overlay", type=int, default=0)
+            sp.add_argument("--launch-options", default="", help="追加到命令行的启动参数")
+            sp.add_argument("--icon", default="", help="图标文件路径")
         sp.set_defaults(fn=fn)
 
     sr = sub.add_parser("remove")

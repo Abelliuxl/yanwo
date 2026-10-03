@@ -64,6 +64,18 @@ class TestDetect(unittest.TestCase):
     def test_self_not_in_prefix(self):
         self.assertNotIn(os.getpid(), detect.procs_of_prefix("2885173776"))
 
+    def test_zombie_ignored(self):
+        """僵尸进程的 comm 还在，但必须被当成“已经死了”，否则会永远卡在等待。"""
+        import subprocess
+        import time
+
+        p = subprocess.Popen(["/bin/sleep", "0.01"])
+        time.sleep(0.4)  # 已退出、尚未 wait() → 僵尸
+        try:
+            self.assertNotIn(p.pid, detect.find(["sleep"]), "僵尸不应被识别为存活")
+        finally:
+            p.wait()
+
 
 if __name__ == "__main__":
     unittest.main()

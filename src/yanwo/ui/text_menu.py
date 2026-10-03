@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import queue
 import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable
@@ -35,6 +36,9 @@ class TextMenuUI:
         self.on_quit = on_quit
         self.sel = 0
         self._rows: list[tuple[tk.Frame, tk.Label, tk.Label]] = []
+        # ★ 线程安全：工作线程只往队列里塞，主线程轮询执行。
+        #   （早期版本直接在工作线程调 root.after()，会偶发卡死——别改回去）
+        self._q: queue.Queue = queue.Queue()
 
         self.root = tk.Tk()
         self.root.title("燕窝 Yanwo")
@@ -51,6 +55,7 @@ class TextMenuUI:
         self.f_tip = tkfont.Font(family=CJK, size=TIP_SIZE)
 
         self._build()
+        self.root.after(50, self._drain)
         self.root.bind("<Escape>", lambda e: self._quit())
         self.root.bind("<Up>", lambda e: self._move(-1))
         self.root.bind("<Down>", lambda e: self._move(1))
@@ -144,9 +149,25 @@ class TextMenuUI:
 
     # ---------- 线程安全的对外方法 ----------
     def _post(self, fn: Callable, *a) -> None:
+        """只入队，不碰 Tk（可从任意线程调）。"""
+        self._q.put((fn, a))
+
+    def _drain(self) -> None:
+        """主线程里执行工作线程排队的操作。"""
         try:
-            self.root.after(0, lambda: fn(*a))
-        except RuntimeError:
+            while True:
+                fn, a = self._q.get_nowait()
+                try:
+                    fn(*a)
+                except Exception:  # noqa: BLE001
+                    import logging
+
+                    logging.getLogger("yanwo.ui").exception("UI 回调失败")
+        except queue.Empty:
+            pass
+        try:
+            self.root.after(50, self._drain)
+        except tk.TclError:
             pass
 
     def set_games(self, games: list[tuple[str, str]]) -> None:
