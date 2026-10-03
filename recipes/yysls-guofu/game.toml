@@ -78,6 +78,8 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 # gamescope_focus / gamescope_dialog 全程维护，不受 watch_seconds 限制。
 # 登录窗消失或会话结束时自动恢复；桌面模式跳过 gamescope 操作。
 [windows]
+# 仅关闭年龄信息卡，真实登录/验证弹窗继续由窗口规则跟随。
+suppress_classes = ["MPAY_AGE_TIPS"]
 enabled = true
 watch_seconds = 180
 
@@ -88,9 +90,9 @@ actions = ["gamescope_focus"]
 priority = 30
 
 [[windows.rules]]
-name = "年龄提示按对话框分类，避免被拉伸为浮层"
+name = "年龄信息卡永久排除登录焦点候选"
 match = "^MpayAgeTipsForm$"
-actions = ["gamescope_dialog"]
+actions = ["gamescope_ignore"]
 priority = 20
 
 [[windows.rules]]

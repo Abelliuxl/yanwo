@@ -171,17 +171,17 @@ class TestRules(unittest.TestCase):
         conn.unmap.assert_called_once_with(0x200)   # 辅助窗照样收起
         conn.focus.assert_not_called()               # 但不去改焦点
 
-    def test_focus_guard_returns_focus_to_target(self):
+    def test_focus_guard_preserves_other_window_or_edit_focus(self):
         from unittest.mock import MagicMock
 
         rules = WindowRules([])
         rules._gamescope.target = 0x100
         rules._dialog_ids = {0x200}
         conn = MagicMock()
-        conn.input_focus.return_value = 0x999  # 别的窗拿了焦点
+        conn.input_focus.return_value = 0x999  # 子输入控件/真实弹窗应保留焦点
         with patch("yanwo.core.windows.connection", return_value=conn):
             rules._guard_focus()
-        conn.focus.assert_called_once_with(0x100)
+        conn.focus.assert_not_called()
 
 
 if __name__ == "__main__":

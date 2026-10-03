@@ -612,7 +612,9 @@ class WindowRules:
                 self._focus_hidden.add(wid)
             except Exception:  # noqa: BLE001
                 pass
-        if c.input_focus() not in (target, 0):
+        # Only repair focus actually stolen by one of our auxiliary windows.
+        # A Wine child edit or genuine modal must keep its current input focus.
+        if c.input_focus() in self._dialog_ids:
             c.focus(target)
 
     def _restore_hidden(self) -> None:

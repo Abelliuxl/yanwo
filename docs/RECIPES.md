@@ -38,6 +38,7 @@ QT_OPENGL = "software"
 [windows]                               # 窗口规则（每个游戏都不一样，全在这里声明）
 enabled = true
 watch_seconds = 180                     # 进游戏后观察多久（窗口是陆续冒出来的）
+suppress_classes = ["MPAY_AGE_TIPS"]     # 可选：会话内持续禁用并关闭指定 Win32 辅助窗类
 [[windows.rules]]
 name = "年龄提示压到底层"                  # 只用于日志
 match = "MpayAgeTipsForm"               # 标题正则（读的是 _NET_WM_NAME，UTF-8，中文可用）
@@ -145,3 +146,9 @@ pause_windows = []                      # 出现这些标题的窗口时自动�
 `gamescope_ignore`：声明不参与主弹窗切换的辅助窗口（例如协议说明小浮层）。
 这些动作全程维护，不受 `watch_seconds` 限制。窗口消失/会话结束后自动恢复。
 普通桌面模式跳过；其它非零显示控制值由 Steam/其它工具管理时，不覆盖它。
+
+
+`[windows].suppress_classes`：仅用于可以关闭的辅助信息窗口，按 Win32 窗口类精确匹配。
+在该配方的 Wine prefix 内启动会话守卫，先禁用窗口、隐藏，再向窗口自身 GUI 线程发送
+WM_CLOSE；重建后继续关闭，不受 watch_seconds 限制。守卫使用独立进程组，退出会话时
+只结束自己的辅助进程。不要把账号登录、协议确认或验证码模态窗口配置到这里。

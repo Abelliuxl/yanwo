@@ -6,6 +6,25 @@
 #include <string.h>
 #include <stdlib.h>
 static DWORD login_pid;
+
+static void close_auxiliary(HWND h) {
+    /* Unmapping alone leaves a live Wine window that the SDK can show again.
+     * Disable first to remove it from focus selection, then close on its own
+     * GUI thread. Never use DestroyWindow across process boundaries. */
+    EnableWindow(h, FALSE);
+    SetWindowLongPtr(h, GWL_EXSTYLE,
+        GetWindowLongPtr(h, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+    ShowWindow(h, SW_HIDE);
+    DWORD_PTR result;
+    SendMessageTimeoutW(h, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &result);
+}
+
+static BOOL CALLBACK suppress_class(HWND h, LPARAM wanted) {
+    char cls[128] = {0};
+    GetClassNameA(h, cls, sizeof(cls));
+    if (!strcmp(cls, (const char *)wanted)) close_auxiliary(h);
+    return TRUE;
+}
 static BOOL CALLBACK suspend_age(HWND h, LPARAM ignored) {
     DWORD pid = 0;
     GetWindowThreadProcessId(h, &pid);
@@ -13,12 +32,8 @@ static BOOL CALLBACK suspend_age(HWND h, LPARAM ignored) {
     char cls[128] = {0};
     GetClassNameA(h, cls, sizeof(cls));
     if (strcmp(cls, "MPAY_AGE_TIPS")) return TRUE;
-    /* This is the informational age card, not the verification/consent dialog.
-     * Keep it from reactivating when Steam opens its floating keyboard.
-     */
-    SetWindowLongPtr(h, GWL_EXSTYLE,
-        GetWindowLongPtr(h, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
-    ShowWindow(h, SW_HIDE);
+    /* Exact informational age-card class; never the consent/verification UI. */
+    close_auxiliary(h);
     return TRUE;
 }
 
@@ -105,6 +120,13 @@ static void start_guard(HWND root, HWND edit) {
 
 int main(int argc, char **argv) {
     SetProcessDPIAware();
+    if (argc == 3 && !strcmp(argv[1], "--suppress-window")) {
+        if (!argv[2][0]) return 1;
+        for (;;) {
+            EnumWindows(suppress_class, (LPARAM)argv[2]);
+            Sleep(25);
+        }
+    }
     if (argc == 6 && !strcmp(argv[1], "--keep-edit")) {
         guard_edit((HWND)(ULONG_PTR)strtoull(argv[2], NULL, 10),
                    (HWND)(ULONG_PTR)strtoull(argv[3], NULL, 10), atoi(argv[4]), atoi(argv[5]));

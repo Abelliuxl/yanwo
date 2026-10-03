@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import subprocess
+from pathlib import Path
 import threading
 import time
 from enum import Enum
@@ -45,6 +47,7 @@ class Session:
         self._win_rules: windows.WindowRules | None = None
         self._win_thread: threading.Thread | None = None
         self.clicker = None  # 由 Hub 注入（手柄光标后端），规则里的 click 动作要用
+        self._window_blockers: list = []
         self._procs: list = []  # 自己起的子进程，需要主动回收（否则变僵尸）
 
     # ---------- 对外 ----------
@@ -155,6 +158,7 @@ class Session:
     def _start_window_rules(self) -> None:
         """启动窗口守护：① 执行配方里的窗口规则；② 全程评估"游戏阶段要不要开光标桥"。"""
         r = self.recipe
+        self._start_window_blockers()
         gate = None
         if r.bridge_cursor_windows or r.bridge_cursor_on_dialogs or r.bridge_pause_windows:
             gate = windows.BridgeGate(
@@ -182,7 +186,39 @@ class Session:
             return  # 启动器/菜单阶段本来就是光标模式，不用它管
         self._input("cursor" if want_cursor else "off")
 
+    def _start_window_blockers(self) -> None:
+        classes = self.recipe.windows.get("suppress_classes", [])
+        step = next((s for s in self.recipe.steps if s.kind == "wine"), None)
+        if not classes or step is None or self._window_blockers:
+            return
+        helper = Path(__file__).resolve().parents[1] / "input/native/focused-edit.exe"
+        for cls in classes:
+            process = subprocess.Popen(
+                [str(step.get("wine")), str(helper), "--suppress-window", cls],
+                env=runner.build_env(step, self.recipe), stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            self._window_blockers.append(process)
+            self.log.info("会话内禁用并关闭辅助窗口类 %s", cls)
+
     def _stop_window_rules(self) -> None:
+        for process in self._window_blockers:
+            # Wine's start.exe may spawn the native worker through wineserver.
+            # Its private process group contains only this blocker, not the game.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=1)
+        self._window_blockers.clear()
         if self._win_rules:
             self._win_rules.stop()
             if self._win_thread:
