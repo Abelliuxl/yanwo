@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -97,6 +98,27 @@ class TestBridgeGate(unittest.TestCase):
 
 
 class TestRules(unittest.TestCase):
+    def test_gamescope_matches_dialogs_only_from_target_process(self):
+        rules = WindowRules([
+            {"match": "^登录$", "actions": ["gamescope_focus"]},
+            {"match": "^Mpay", "actions": ["gamescope_dialog"]},
+        ])
+        target = win(1, "登录")
+        age = win(2, "MpayAgeTipsForm")
+        age.pid = target.pid
+        unrelated = win(3, "MpayOther")
+        with patch("yanwo.core.windows.list_windows", return_value=[target, age, unrelated]), \
+             patch.object(rules._gamescope, "update") as update:
+            rules.sync_gamescope()
+            update.assert_called_once_with(1, [2])
+
+    def test_missing_login_releases_focus(self):
+        rules = WindowRules([{"match": "^登录$", "actions": ["gamescope_focus"]}])
+        with patch("yanwo.core.windows.list_windows", return_value=[]), \
+             patch.object(rules._gamescope, "update") as update:
+            rules.sync_gamescope()
+            update.assert_called_once_with(0, [])
+
     def test_priority_sorting(self):
         rules = [
             {"name": "低", "match": "a", "priority": 1},

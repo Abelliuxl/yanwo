@@ -192,7 +192,9 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
 - 也留了 `pause_windows`（标题正则）用于"某窗口出现就自动暂停"，但 Steam 覆盖界面在 game mode 下
   通常是 gamescope 自己画的、**没有 X 窗口**，所以主要靠上面的快捷键。
 
-## 19. 燕云登录窗在 game mode 下"看不见"的完整结论（2026-10-04，实机 + gamescope 源码）
+## 19. 燕云登录窗在 game mode 下"看不见"的早期调查（2026-10-04）
+
+> 本节“必须桌面登录”的结论已被第 20 节实机验证推翻；保留早期操作记录供排错。
 
 ### 现象
 game mode 里屏幕中央显示一张放大的**「16+ CADPA 适龄提示」卡片**，盖住了二维码登录窗；
@@ -249,3 +251,25 @@ focus = 登录窗（720x960@1560,600）时，120x152 的年龄卡片就被拉成
    `XSetErrorHandler` 把它降级成 `last_error`，否则一次探测就能把 Hub 干掉。
 2. **`gamescopectl help`** 列出所有 gamescope 调试命令（还有 `log_<通道> debug` 可以
    打开调试日志，日志进 journal）。
+
+
+## 20. SteamOS 内直接显示登录窗（2026-10-04，实机复现）
+
+第 19 节漏掉了 gamescope 的全局显示窗口控制，以及无标题辅助窗。
+`pick_primary_focus_and_override()` 的全局调用读取 **root_ctx** 的
+`GAMESCOPECTRL_BASELAYER_WINDOW`。本机 root_ctx 是 `:0`，游戏窗在 `:1`。
+在 `:1` 改该属性仅改变游戏侧焦点，不会指定最终合成画面的窗口。
+
+实机修复由两步组成：
+
+1. 在 gamescope server ID 0 的 root 设置 `GAMESCOPECTRL_BASELAYER_WINDOW` 为登录窗 XID。
+2. 将同进程的 `MpayAgeTipsForm` 类型临时改为 `_NET_WM_WINDOW_TYPE_DIALOG`。
+   它有 `WM_TRANSIENT_FOR`；类型纠正后不再满足 `win_maybe_a_dropdown()`，避免年龄纹理盖住二维码。
+
+`tools/gs-shot.py` 抓到真正合成的二维码登录画面。将年龄类型恢复并重映射年龄窗，
+再次出现遮挡；重新应用两步修复后恢复二维码。因此只指定显示焦点还不够。
+无需隐藏/关闭年龄窗，无需重映射游戏主窗口，无需切桌面。
+
+配方动作 `gamescope_focus` 与 `gamescope_dialog` 由守护线程全程维护。
+登录窗消失或会话结束时恢复原显示控制值和窗口类型；若 Steam 已改控制值，保留 Steam 的选择。
+用户已从 SteamOS 重新启动并确认登录窗口正常显示（2026-10-04）。扫码完成后的主窗口恢复仍需后续验证。

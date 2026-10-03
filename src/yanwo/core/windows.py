@@ -35,6 +35,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from .gamescope import GamescopeFocus
+
 log = logging.getLogger("yanwo.windows")
 
 # 支持的动作（配方里 actions = [...] 写这些名字）
@@ -541,6 +543,23 @@ class WindowRules:
         self._seen: set[str] = set()
         self._last_apply: dict[str, float] = {}
         self._stop = threading.Event()
+        self._gamescope = GamescopeFocus()
+
+    def sync_gamescope(self) -> None:
+        focus_rules = [r for r in self.rules if r.get("enabled", True)
+                       and "gamescope_focus" in r.get("actions", [])]
+        if not focus_rules:
+            return
+        wins = list_windows()
+        target = next((w for r in focus_rules for w in match_title(r.get("match", ""), wins)), None)
+        dialogs = [w.wid for r in self.rules if r.get("enabled", True)
+                   and "gamescope_dialog" in r.get("actions", [])
+                   for w in match_title(r.get("match", ""), wins)
+                   if target and w.pid == target.pid]
+        previous = self._gamescope.target
+        self._gamescope.update(target.wid if target else 0, dialogs)
+        if previous != self._gamescope.target:
+            self.log.info("gamescope 显示窗口 -> %#x", self._gamescope.target)
 
     def stop(self) -> None:
         self._stop.set()
@@ -570,7 +589,10 @@ class WindowRules:
             if not hits:
                 continue
             self._last_apply[key] = now
-            acts = list(rule.get("actions", []))
+            acts = [a for a in rule.get("actions", [])
+                    if a not in ("gamescope_focus", "gamescope_dialog")]
+            if not acts:
+                continue
             for win in hits:
                 res = apply_actions(win, acts, self.clicker)
                 self.log.info("窗口规则「%s」→ %s : %s", key, win, "; ".join(res))
@@ -592,11 +614,18 @@ class WindowRules:
     def run(self) -> None:
         """规则只在前 watch_seconds 秒生效；桥门控全程评估（直到会话结束）。"""
         deadline = time.time() + self.watch_seconds
-        while not self._stop.is_set():
+        try:
+            while not self._stop.is_set():
+                try:
+                    self.sync_gamescope()  # 登录可晚于 watch_seconds；全程维护并自动释放。
+                    if time.time() < deadline:
+                        self.tick()
+                    self._eval_gate()
+                except Exception:  # noqa: BLE001
+                    self.log.exception("窗口规则执行出错")
+                self._stop.wait(2.0)
+        finally:
             try:
-                if time.time() < deadline:
-                    self.tick()
-                self._eval_gate()
+                self._gamescope.release()
             except Exception:  # noqa: BLE001
-                self.log.exception("窗口规则执行出错")
-            self._stop.wait(2.0)
+                self.log.exception("归还 gamescope 显示焦点失败")

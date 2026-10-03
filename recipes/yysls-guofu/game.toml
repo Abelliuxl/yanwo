@@ -74,44 +74,24 @@ max_global_vram_pct = 92
 graceful_close_first = true        # 先发窗口关闭事件再杀（否则下载缓存被判损坏 → 重下 125G）
 
 # ---------------- 窗口规则（每个游戏都可能不一样 → 在配方里声明，代码不写死） ----------------
-# 实测支持情况（2026-10-04）：
-#   game mode：只有 lower / close 这类"不依赖 WM 重排"的动作有效；
-#              raise / focus / move / resize / remap 会被 gamescope(steamcompmgr) 忽略，
-#              引擎会把"没生效"写进日志（见 docs/DEV-NOTES.md 14）。
-#   desktop mode（KWin）：全部有效。
+# SteamOS 多窗口登录：临时指定最终合成窗口，纠正年龄窗的浮层分类。
+# gamescope_focus / gamescope_dialog 全程维护，不受 watch_seconds 限制。
+# 登录窗消失或会话结束时自动恢复；桌面模式跳过 gamescope 操作。
 [windows]
 enabled = true
 watch_seconds = 180
 
-# ═══════════════════════════════════════════════════════════════════════
-# 2026-10-04 实机 + gamescope 源码结论（详见 docs/DEV-NOTES.md 第 19 节）
-#
-# 燕云在 game mode 下同时开三个窗口（都是 yysls.exe 的）：
-#   燕云十六声      3840x2160  主窗口
-#   登录            720x960+1560+600   二维码登录框（内容正常！）
-#   MpayAgeTipsForm 120x152+0+0        "16+ CADPA 适龄提示"小卡片
-#
-# 玩家看到的"大卡片"= **年龄窗的内容被 gamescope 拉伸铺满登录窗的矩形**：
-# steamcompmgr.cpp:2124 里 override 层用 `scaleW->GetGeometry()`（= focus 窗）
-# 当尺寸，于是 120x152 的卡片被拉成 720x960 盖住登录窗。
-# 证据：unmap 年龄窗→卡片消失；unmap 登录窗→卡片仍在；像素指纹匹配年龄窗。
-#
-# 实测**无效或有害**（都有截图对比）：
-#   lower/raise/focus/move/_NET_WM_WINDOW_OPACITY=0/hide(年龄窗)
-#   - hide(年龄窗)：卡片没了，但登录窗矩形变全黑 —— gamescope 压根没有登录窗的内容
-#     （它只画 focus 窗 + override 窗两层，登录窗这一层提交不上来）
-#   - remap(主窗口)：画面会整个黑掉（D3D12 窗口重映射的副作用），过一会儿才自己恢复
-#
-# 所以：**只保留 activate**（唯一确认有效且无害的动作）。
-# 结论：game mode 下"看见登录窗"靠窗口操作做不到 —— 请到**桌面模式**登录一次，
-#       登录状态会保留，之后回 game mode 直接进游戏。
-# ═══════════════════════════════════════════════════════════════════════
 [[windows.rules]]
-name = "登录窗激活到最前"
+name = "登录窗作为 gamescope 显示窗口"
 match = "^(登录|Login|登入)"
-actions = ["activate"]
-repeat_seconds = 6
+actions = ["gamescope_focus"]
 priority = 30
+
+[[windows.rules]]
+name = "年龄提示按对话框分类，避免被拉伸为浮层"
+match = "^MpayAgeTipsForm$"
+actions = ["gamescope_dialog"]
+priority = 20
 
 # ---------------- 输入桥（P2 实现） ----------------
 [bridge]

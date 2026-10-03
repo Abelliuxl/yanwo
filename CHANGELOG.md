@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [Unreleased] - 2026-10-04
+
+- 修复 SteamOS 燕云首次登录年龄牌遮挡：在 gamescope 控制 display 指定登录窗，
+  并临时纠正年龄窗类型；登录结束自动归还焦点。实机合成截图确认二维码可见。
+- 新增配方动作 `gamescope_focus` / `gamescope_dialog`，全程维护且恢复原属性。
+- 进入游戏阶段立即评估鼠标门控，避免此前已出现的登录窗无法操作。
+- 第 0.8.0 版“只能桌面登录”的结论已推翻，详见 DEV-NOTES 第 20 节。
+
 ## [0.8.0-demo] - 2026-10-04
 
 燕云登录窗"看不见"的**彻底定案**（实机 + gamescope 源码），以及配套工具。

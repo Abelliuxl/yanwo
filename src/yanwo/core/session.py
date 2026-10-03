@@ -43,6 +43,7 @@ class Session:
         self._reason = ""
         self._monitor: VramMonitor | None = None
         self._win_rules: windows.WindowRules | None = None
+        self._win_thread: threading.Thread | None = None
         self.clicker = None  # 由 Hub 注入（手柄光标后端），规则里的 click 动作要用
         self._procs: list = []  # 自己起的子进程，需要主动回收（否则变僵尸）
 
@@ -172,7 +173,8 @@ class Session:
         self.log.info("窗口守护: 规则 %d 条（观察 %.0fs），光标门控 %s",
                       len(r.window_rules), r.window_watch_seconds,
                       "开" if gate else "关")
-        threading.Thread(target=self._win_rules.run, daemon=True, name="window-rules").start()
+        self._win_thread = threading.Thread(target=self._win_rules.run, daemon=True, name="window-rules")
+        self._win_thread.start()
 
     def _on_bridge_gate(self, want_cursor: bool, why: str) -> None:
         """游戏阶段里，遇到登录窗/弹窗就开光标桥；只剩主窗口就关掉（游戏自己的手柄优先）。"""
@@ -183,6 +185,9 @@ class Session:
     def _stop_window_rules(self) -> None:
         if self._win_rules:
             self._win_rules.stop()
+            if self._win_thread:
+                self._win_thread.join()
+                self._win_thread = None
             self._win_rules = None
 
     def _input(self, mode: str) -> None:
@@ -219,7 +224,10 @@ class Session:
                 seen_game = True
                 self._set_phase(Phase.GAME)
                 self._status("游戏运行中…")
-                self._input("off")  # 游戏自己管手柄，桥让位
+                want = False
+                if self._win_rules and self._win_rules.gate:
+                    want, _ = self._win_rules.gate.wants_cursor()
+                self._input("cursor" if want else "off")
             elif not game_alive and seen_game:
                 self.log.info("游戏已退出")
                 seen_game = False

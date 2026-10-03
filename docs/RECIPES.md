@@ -132,3 +132,13 @@ pause_windows = []                      # 出现这些标题的窗口时自动�
   所以 `QT_OPENGL` / `QT_QUICK_BACKEND` 这类 Qt 变量放在这里就生效。
 - 一个配方可以有多步 `[[steps]]`（例如“更新器 → 启动器”），P1 是顺序起、不等退出。
 - 新增字段时请同步更新本文件与 `src/yanwo/recipe.py`。
+
+
+### SteamOS 登录多窗口处理
+
+`gamescope_focus`：将命中窗口临时指定为 gamescope 最终合成画面的显示窗口。
+自动找到 server ID 0 的控制 display，不能直接用游戏所在的 DISPLAY。
+`gamescope_dialog`：在同一游戏进程的登录窗口存在时，将命中辅助窗口临时分类为对话框，
+避免被 gamescope 当成拉伸的浮层。
+这两个动作全程维护，不受 `watch_seconds` 限制。窗口消失/会话结束后自动恢复。
+普通桌面模式跳过；其它非零显示控制值由 Steam/其它工具管理时，不覆盖它。
