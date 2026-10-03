@@ -29,7 +29,7 @@ class InputDaemon(threading.Thread):
         on_status: Callable[[str], None] | None = None,
         profile: Profile | None = None,
         device_hint: list[str] | None = None,
-        backend: str = "xdotool",
+        backend: str = "auto",
         logger: logging.Logger | None = None,
     ) -> None:
         super().__init__(daemon=True, name="yanwo-input")
