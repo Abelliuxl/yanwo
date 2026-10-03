@@ -104,6 +104,7 @@ pause_windows = []                      # 出现这些标题的窗口时自动�
 
 | 动作 | 写法 | game mode（gamescope） | desktop mode（KWin） |
 |---|---|---|---|
+| `activate` | **game mode 唯一有效的"置前"**（EWMH 请求，让 WM 自己去 raise）|
 | `lower` | `"lower"` | ✅ **有效**（把碍事的窗口压到最底，别的主窗口自然到前面） | ✅ |
 | `close` | `"close"` | ✅ 发 WM_DELETE_WINDOW（让应用自己关） | ✅ |
 | `focus` | `"focus"` | ❌ 被忽略 | ✅ |
@@ -114,10 +115,12 @@ pause_windows = []                      # 出现这些标题的窗口时自动�
 | `hide` | `"hide"` | 未实测 | ✅ |
 | `click` | `"click"` | 走 XTest 点击窗口中心（是否有效取决于窗口是否拿到输入） | ✅ |
 
-> **血的教训（2026-10-04 二次实测）**：`lower` 虽然改了 X 的堆叠顺序，但
-> **gamescope 的视觉层级不跟 X 堆叠走** —— 所以"把碍事的窗口压到底"在 game mode 下**看着没变化**。
-> 真正管用的是让那个窗口**消失**：`close`（发 WM_DELETE_WINDOW，应用自己关）或 `hide`（unmap）。
-> 只想"让它在最前/最后"的诉求，在 game mode 下基本做不到；要处理就处理掉那个窗口。
+> **结论（2026-10-04，读 gamescope 源码 + 实测确认）**：game mode 下想让某个窗口到最前，
+> 只能用 **`activate`**（发 EWMH `_NET_ACTIVE_WINDOW`）。gamescope 收到后会调用**它自己**的
+> `XRaiseWindow` → `restack_win()` 改它内部的绘制列表，所以画面层级真的会变（实测堆叠 3→4）。
+> 而我们**自己**发 `raise`/`lower` 属于外部请求，WM 直接吞掉 —— 这就是"lower 看着没反应"的原因。
+> gamescope 还有个坑：它**从不**把 `_NET_ACTIVE_WINDOW` 写到 root 上，所以别拿这个属性当判据，
+> 要看**堆叠索引**（`verdict_activate()` 已经这么做了）。
 
 ## 约定与注意事项
 

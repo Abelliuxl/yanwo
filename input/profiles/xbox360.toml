@@ -6,10 +6,10 @@
 name = "xbox360"
 
 [axes]
-move_x = 0      # 左摇杆 X → 光标左右（主）
-move_y = 1      # 左摇杆 Y → 光标上下（主）
-move_x2 = 3     # 右摇杆 X → 光标左右（副，也认）
-move_y2 = 4     # 右摇杆 Y → 光标上下（副，也认）
+move_x = 0      # 左摇杆 X（Hub 菜单导航；**不**用来移光标）
+move_y = 1      # 左摇杆 Y（同上）
+move_x2 = 3     # 右摇杆 X → 光标左右 ← 现在由它独占移光标
+move_y2 = 4     # 右摇杆 Y → 光标上下
 hat_x = 6       # 十字键 X（Hub 里选择 / 启动器里方向键）
 hat_y = 7       # 十字键 Y
 
@@ -22,6 +22,7 @@ start = 7       # Start：启动器里回车
 select = 6      # Back/Select
 
 [feel]
+pointer_stick = "right"  # 只用右摇杆移光标：左摇杆留给 Steam 覆盖界面/切窗口，避免打架
 deadzone = 6000       # 摇杆死区（满量程 32767）
 speed_px_s = 2200     # 满推时每秒移动的像素（4K 屏不用太慢）
 accel = 0.35          # 轻推时的慢速比例

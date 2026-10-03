@@ -83,17 +83,18 @@ graceful_close_first = true        # 先发窗口关闭事件再杀（否则下�
 enabled = true
 watch_seconds = 180          # 进游戏后观察多久（窗口是陆续冒出来的）
 
-# ⚠️ 2026-10-04 实测：lower 只改了 X 的堆叠顺序，**gamescope 的视觉层级不跟它走**，
-#    所以"压到底层"在 game mode 下看着没变化。真正治本的是让它消失：
-#      close = 发 WM_DELETE_WINDOW（等于点右上角 X，应用自己关；推荐）
-#      hide  = unmap（我们直接藏，应用不知道）
-#    如果 close 会让游戏流程出问题，就换成 ["hide"]。
+# 用户决定（2026-10-04）：**不要动年龄提示**（关掉它还会再冒出来），
+# 改成"登录窗一出现就把它激活到最前" —— 年龄窗自然被压在后面，管它干嘛。
+#
+# activate = 给 WM 发 EWMH `_NET_ACTIVE_WINDOW` 客户端消息（"请把某窗口置前/激活"）。
+# 这是 game mode 下唯一可能奏效的路子：XRaiseWindow / XSetInputFocus 是我们自己动手改，
+# gamescope(steamcompmgr) 一律忽略；而 _NET_ACTIVE_WINDOW 是它会处理的请求。
 [[windows.rules]]
-name = "年龄提示关掉（别挡着登录窗）"
-match = "MpayAgeTipsForm"
-actions = ["close"]
-repeat_seconds = 10
-priority = 20
+name = "登录窗激活到最前"
+match = "^(登录|Login|登入)"
+actions = ["activate"]
+repeat_seconds = 6      # 没抢到就每 6 秒再请求一次，直到它真的在前
+priority = 30
 
 [[windows.rules]]
 name = "登录窗置前"

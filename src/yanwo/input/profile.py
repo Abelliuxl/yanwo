@@ -3,6 +3,11 @@
 默认值对应 Linux joystick API 下的 Xbox 360 兼容手柄（xpad / XInput 接收器）：
   轴: 0=左摇杆X 1=左摇杆Y 3=右摇杆X 4=右摇杆Y 6=十字键X 7=十字键Y
   键: 0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start
+
+`pointer_stick` 决定"哪根摇杆移光标"：
+  * "right"（默认）：只用右摇杆。**这是刻意的** —— Steam 覆盖界面/切窗口用的是左摇杆，
+    只用右摇杆就不会和它抢输入（2026-10-04 用户决定）。
+  * "left" / "both"：剩下的两种情况（both = 谁推得多听谁的）。
 如果你的是别的布局，用 `yanwo calibrate` 看编号，然后改 input/profiles/*.toml。
 """
 from __future__ import annotations
@@ -35,6 +40,7 @@ class Profile:
     btn_start: int = 7      # Start
     btn_select: int = 6     # Back/Select
     # 光标手感
+    pointer_stick: str = "right"  # right / left / both
     deadzone: int = 6000          # 摇杆死区（满量程 32767）
     speed_px_s: int = 2200        # 满推时每秒移动像素
     accel: float = 0.35           # 低偏移时的慢速系数
@@ -55,6 +61,9 @@ class Profile:
                 if hasattr(p, f"btn_{k}"):
                     setattr(p, f"btn_{k}", int(v))
             for k, v in (data.get("feel", {}) or {}).items():
+                if k == "pointer_stick":
+                    p.pointer_stick = str(v).lower()
+                    continue
                 if hasattr(p, k):
                     setattr(p, k, type(getattr(p, k))(v))
             p.name = data.get("name", p.name)

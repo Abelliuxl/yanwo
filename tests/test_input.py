@@ -60,9 +60,10 @@ class TestMapper(unittest.TestCase):
         self.assertEqual(self.m.feed(btn(9, True)), [("button", 9)])
 
     def test_deadzone(self):
-        self.m.feed(axis(self.p.axis_move_x, 100))
+        # 默认 profile 的"移光标"轴是右摇杆（pointer_stick = "right"）
+        self.m.feed(axis(self.p.axis_move_x2, 100))
         self.assertEqual(self.m.cursor_velocity(), (0.0, 0.0))
-        self.m.feed(axis(self.p.axis_move_x, 32767))
+        self.m.feed(axis(self.p.axis_move_x2, 32767))
         vx, vy = self.m.cursor_velocity()
         self.assertGreater(vx, 0.9)
         self.assertEqual(vy, 0.0)
@@ -77,12 +78,20 @@ class TestMapper(unittest.TestCase):
         self.m.feed(axis(self.p.axis_hat_y, 32767))
         self.assertEqual(self.m.nav_step(), 1)
 
-    def test_both_sticks_drive_cursor(self):
+    def test_left_stick_does_not_move_cursor_by_default(self):
+        """默认只用右摇杆：左摇杆留给 Steam 覆盖界面/切窗口（2026-10-04 决定）。"""
         self.m.feed(axis(self.p.axis_move_x, 32767))
-        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "左摇杆要能移光标")
+        self.assertEqual(self.m.cursor_velocity(), (0.0, 0.0), "左摇杆不该动光标")
+        self.m.feed(axis(self.p.axis_move_x2, 32767))
+        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "右摇杆要能移光标")
+
+    def test_both_sticks_when_configured(self):
+        self.m.p.pointer_stick = "both"
+        self.m.feed(axis(self.p.axis_move_x, 32767))
+        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "设为 both 时左摇杆也能移")
         self.m.feed(axis(self.p.axis_move_x, 0))
         self.m.feed(axis(self.p.axis_move_x2, 32767))
-        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "右摇杆也要能移光标")
+        self.assertGreater(self.m.cursor_velocity()[0], 0.9, "右摇杆也能移")
 
     def test_left_stick_nav_can_be_disabled(self):
         self.m.feed(axis(self.p.axis_move_y, 32767))
@@ -116,6 +125,39 @@ class TestMapper(unittest.TestCase):
         self.assertEqual(rest, b"")
         evs2, rest2 = parse_events(buf[:6])
         self.assertEqual((evs2, len(rest2)), ([], 6), "半包要留着")
+
+
+class TestPointerStick(unittest.TestCase):
+    """移光标用哪根摇杆（用户要求：只用右摇杆，把左摇杆让给 Steam 覆盖界面）。"""
+
+    def mapper(self, stick):
+        prof = Profile()
+        prof.pointer_stick = stick
+        m = Mapper(prof)
+        return m
+
+    def push(self, m, lx=0, ly=0, rx=0, ry=0):
+        for num, val in ((0, lx), (1, ly), (3, rx), (4, ry)):
+            m.feed(axis(num, val))
+        return m.cursor_velocity()
+
+    def test_right_only(self):
+        m = self.mapper("right")
+        self.assertEqual(self.push(m, lx=30000), (0.0, 0.0), "左摇杆不该动光标")
+        self.assertGreater(self.push(m, rx=30000)[0], 0.5, "右摇杆要能动")
+
+    def test_left_only(self):
+        m = self.mapper("left")
+        self.assertEqual(self.push(m, rx=30000), (0.0, 0.0), "右摇杆不该动光标")
+        self.assertGreater(self.push(m, lx=30000)[0], 0.5)
+
+    def test_both(self):
+        m = self.mapper("both")
+        self.assertGreater(self.push(m, lx=30000)[0], 0.5)
+        self.assertGreater(self.push(m, rx=30000)[0], 0.5)
+
+    def test_default_profile_is_right(self):
+        self.assertEqual(Profile().pointer_stick, "right", "默认只用右摇杆")
 
 
 class TestComboAndPause(unittest.TestCase):

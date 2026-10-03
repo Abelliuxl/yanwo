@@ -2,6 +2,35 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的写法。
 
+## [0.7.0-demo] - 2026-10-04
+
+第三轮实机反馈：**年龄窗不再动它，改为把登录窗激活到最前**；光标只用右摇杆。
+
+### Added
+- `activate` 动作：发 EWMH `_NET_ACTIVE_WINDOW`。**这是 game mode 下唯一真的能"置前"的办法**
+  （gamescope 收到后调用它自己的 XRaiseWindow → restack_win → 内部绘制列表重排）。
+  燕云配方：登录窗 `match = "^(登录|Login|登入)"` → `actions = ["activate"]`，
+  每 6 秒重申一次；**年龄提示完全不管了**
+- `verdict_activate()`：判据改为**堆叠索引**（gamescope 从不写 `_NET_ACTIVE_WINDOW` 到 root）
+- `_X.pixel()` 像素探针（desktop 可用；gamescope 上读 root 会 BadMatch → 返回 -1）
+- `pointer_stick`：移光标用哪根摇杆，**默认 `right`（只用右摇杆）**
+
+### Changed
+- **左摇杆不再移光标**（用户要求）：Steam 覆盖界面/切窗口吃的是左摇杆，只用右摇杆就不会打架。
+  Hub 菜单导航仍可用左摇杆；想改回 `pointer_stick = "left"` 或 `"both"`
+- 饱和度/测试同步更新
+
+### Fixed
+- **`_X` 装了 X 错误处理器**：libX11 默认处理器遇到 BadMatch/XGetImage 失败会直接 `exit(1)`
+  ——一次探测就能把 Hub 干掉。现在降级成 `last_error`，探测失败返回 -1
+- 之前 `activate` 的"没生效"是**误报**：我在用 gamescope 根本不写的 root 属性当判据
+
+### Docs
+- DEV-NOTES 17 重写：从 gamescope 源码得出的"置前"机制 + 三个坑（属性不写、外部 raise 被吞、XGetImage BadMatch）
+
+### Tests
+- 42 项（新增 activate 判定 3 项）
+
 ## [0.6.0-demo] - 2026-10-04
 
 按实机反馈第二轮修（年龄窗仍在前 + Steam 覆盖界面和光标打架）。

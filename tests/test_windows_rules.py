@@ -12,6 +12,7 @@ from yanwo.core.windows import (  # noqa: E402
     WindowInfo,
     WindowRules,
     match_title,
+    verdict_activate,
 )
 
 
@@ -40,6 +41,22 @@ class TestMatch(unittest.TestCase):
 
     def test_bad_regex_is_not_fatal(self):
         self.assertEqual(match_title("([", self.wins), [])
+
+
+class TestActivateVerdict(unittest.TestCase):
+    """activate 的判定：堆叠索引上去了 = 真生效（gamescope 从不写 _NET_ACTIVE_WINDOW）。"""
+
+    def test_index_rise_is_ok(self):
+        self.assertIn("OK", verdict_activate(3, 4, 0x0, 0x123))
+        self.assertIn("3→4", verdict_activate(3, 4, 0x0, 0x123))
+
+    def test_ewmh_property_is_ok(self):
+        self.assertIn("OK", verdict_activate(5, 5, 0x123, 0x123), "真 WM 会写这个属性")
+
+    def test_no_change_is_failure(self):
+        v = verdict_activate(5, 5, 0x0, 0x123)
+        self.assertIn("没生效", v)
+        self.assertIn("层级 5→5", v)
 
 
 class TestBridgeGate(unittest.TestCase):

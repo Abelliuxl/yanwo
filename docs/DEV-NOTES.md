@@ -156,13 +156,32 @@ Steam Input 用 `EVIOCGRAB` 抓住输入设备后，**其它进程读物理 js/e
 游戏阶段里只要"命中标题"或"出现弹窗"（`WM_TRANSIENT_FOR` 非 0）→ 开 `cursor` 模式；
 只剩主窗口 → 回到 `off`。门控由窗口守护线程**全程**评估（规则本身只观察前 `watch_seconds` 秒）。
 
-## 17. gamescope 的视觉层级 ≠ X 堆叠顺序（2026-10-04 二次实测）
+## 17. game mode 里"置前"的唯一正确姿势：EWMH `_NET_ACTIVE_WINDOW`（2026-10-04 定案）
 
-- 我们用 `XLowerWindow` 把 `MpayAgeTipsForm` 从堆叠索引 9 降到 0（`XQueryTree` 确认），
-  但**玩家看到的画面没变**，那个小窗仍在前面。
-- 结论：game mode 下想靠"调整层级"解决"某个窗口挡着"是行不通的。可行的是
-  **让那个窗口消失**（`close` = WM_DELETE_WINDOW，应用自己关；或 `hide` = unmap）。
-- 所以窗口规则里 `lower` 只对 desktop(KWin) 有意义；game mode 请用 `close`/`hide`。
+翻 gamescope 3.16.23.6 源码（`src/steamcompmgr.cpp`）得到的结论：
+
+- `handle_client_message()`（:5388）：
+  ```c
+  else if ( ev->message_type == ctx->atoms.activeWindowAtom )
+      XRaiseWindow( ctx->dpy, w->xwayland().id );
+  ```
+  即 gamescope **会处理** `_NET_ACTIVE_WINDOW`，做法是调用它**自己**的 `XRaiseWindow`。
+  WM 自己发起的请求不会被 SubstructureRedirect 再次重定向，于是真的落到 X 服务器上，
+  触发 `CirculateNotify` → gamescope 的 `circulate_win()` → `restack_win()`（:5091）
+  → **它内部的绘制列表也跟着重排**（`paint_window(pFocus->focusWindow...)` 用的就是这个列表）。
+- 反过来，我们**外部**直接发 `XRaiseWindow`/`XLowerWindow`：请求会被重定向成
+  `CirculateRequest` → `circulate_request()` → 实际层级不一定变（实测没变）。
+  **"lower 之后画面没变"就是这个原因，不是"gamescope 不跟 X 堆叠"。**
+- 坑：gamescope 把 `_NET_ACTIVE_WINDOW` 声明进 `_NET_SUPPORTED`、也 intern 了 atom，
+  但**从不 XChangeProperty 到 root**（全文件只有 :5388 那一次使用）。
+  所以判据只能是**堆叠索引有没有上去**，不能读那个属性（读了永远是 0 → 会误报"没生效"）。
+- 实测（:1 上两个同位置 Tk 窗口，A 在下 B 在上）：
+  ```
+  发给 root, SubstructureRedirect|SubstructureNotify  → A 层级 3→4 ✅
+  ```
+- 另：`XGetImage(root)` 在 gamescope 上必然 `BadMatch`（画面是 gamescope 合成的，X 端没有内容），
+  所以"像素探针"在 game mode 下不可用。**注意 libX11 默认错误处理器会直接 exit(1)**，
+  所以 `_X` 里装了 `XSetErrorHandler` 把它降级成 `last_error`，否则一次探测就能干掉 Hub。
 
 ## 18. 输入桥和 Steam 覆盖界面会打架（2026-10-04 用户反馈）
 

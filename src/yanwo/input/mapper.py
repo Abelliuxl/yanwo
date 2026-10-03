@@ -74,13 +74,18 @@ class Mapper:
         return s if v > 0 else -s
 
     def cursor_velocity(self) -> tuple[float, float]:
-        """归一化速度 (-1..1)。左右摇杆都认，谁推得多用谁（左摇杆为主）。"""
+        """归一化速度 (-1..1)。用哪根摇杆由 profile 的 pointer_stick 决定。
+
+        默认只有右摇杆：Steam 覆盖界面/切窗口吃的是左摇杆，只用右摇杆就不会打架。
+        """
+        sticks = []
+        if self.p.pointer_stick in ("left", "both"):
+            sticks.append((self.p.axis_move_x, self.p.axis_move_y))
+        if self.p.pointer_stick in ("right", "both"):
+            sticks.append((self.p.axis_move_x2, self.p.axis_move_y2))
         best = (0.0, 0.0)
         best_mag = 0.0
-        for ax, ay in (
-            (self.p.axis_move_x, self.p.axis_move_y),      # 左摇杆（主）
-            (self.p.axis_move_x2, self.p.axis_move_y2),    # 右摇杆（副）
-        ):
+        for ax, ay in sticks:
             nx = self._norm(self.axes.get(ax, 0))
             ny = self._norm(self.axes.get(ay, 0))
             mag = max(abs(nx), abs(ny))

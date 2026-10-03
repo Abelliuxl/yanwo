@@ -73,6 +73,21 @@ class WindowInfo:
                 f"{self.w}x{self.h}+{self.x}+{self.y} pid={self.pid}")
 
 
+class _XErrorEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("resourceid", ctypes.c_ulong),
+        ("serial", ctypes.c_ulong),
+        ("error_code", ctypes.c_ubyte),
+        ("request_code", ctypes.c_ubyte),
+        ("minor_code", ctypes.c_ubyte),
+    ]
+
+
+_ERROR_HANDLER = None  # 必须留引用，否则 GC 掉 → 崩
+
+
 class _X:
     """极简 X11 封装（ctypes，无进程开销）。"""
 
@@ -105,6 +120,19 @@ class _X:
         ]
         L.XFlush.argtypes = [ctypes.c_void_p]
         L.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
+        L.XGetImage.restype = ctypes.c_void_p
+        L.XGetImage.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                                ctypes.c_uint, ctypes.c_uint, ctypes.c_ulong, ctypes.c_int]
+        L.XGetPixel.restype = ctypes.c_ulong
+        L.XGetPixel.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        L.XDestroyImage.argtypes = [ctypes.c_void_p]
+        L.XGetInputFocus.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong),
+                                     ctypes.POINTER(ctypes.c_int)]
+        L.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        L.XSendEvent.restype = ctypes.c_int
+        L.XSendEvent.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.c_void_p
+        ]
         for fn, argtypes in (
             ("XRaiseWindow", [ctypes.c_void_p, ctypes.c_ulong]),
             ("XLowerWindow", [ctypes.c_void_p, ctypes.c_ulong]),
@@ -127,6 +155,24 @@ class _X:
         self._utf8_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"UTF8_STRING", 0)
         self._name_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_WM_NAME", 0)
         self._transient_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"WM_TRANSIENT_FOR", 0)
+        self._active_atom = L.XInternAtom(ctypes.c_void_p(self.dpy), b"_NET_ACTIVE_WINDOW", 0)
+        self.last_error = 0
+        # libX11 的默认错误处理器会直接 exit(1)：一个 BadMatch 就能把 Hub 干掉。
+        # 换成"记下来、不退出"，这样探测类调用（XGetImage）失败也不会连累主程序。
+        global _ERROR_HANDLER
+        if _ERROR_HANDLER is None:
+            L.XSetErrorHandler.restype = ctypes.c_void_p
+            L.XSetErrorHandler.argtypes = [ctypes.c_void_p]
+
+            def _handler(_dpy, ev):
+                try:
+                    self.last_error = ctypes.cast(ev, ctypes.POINTER(_XErrorEvent)).contents.error_code
+                except Exception:  # noqa: BLE001
+                    pass
+                return 0
+
+            _ERROR_HANDLER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)(_handler)
+            L.XSetErrorHandler(_ERROR_HANDLER)
 
     # ---- 查询 ----
     def _prop(self, wid: int, atom: int) -> tuple[bytes, int]:
@@ -246,6 +292,68 @@ class _X:
         self.lib.XSetInputFocus(ctypes.c_void_p(self.dpy), ctypes.c_ulong(wid), 2, 0)
         self.lib.XFlush(ctypes.c_void_p(self.dpy))
 
+    def pixel(self, x: int, y: int) -> int:
+        """读屏幕上某个点的真实像素（0xRRGGBB）。
+
+        这是**唯一可靠的"视觉验证"** —— 堆叠顺序/_NET_ACTIVE_WINDOW 都可能说谎，
+        只有像素不会：某个动作有没有真的把窗口挪到最前，看这个点在动作前后变没变。
+        """
+        self.last_error = 0
+        img = self.lib.XGetImage(ctypes.c_void_p(self.dpy), ctypes.c_ulong(self.root),
+                                 int(x), int(y), 1, 1, ~0, 2)  # ZPixmap
+        self.lib.XSync(ctypes.c_void_p(self.dpy), 0)
+        if not img or self.last_error:
+            return -1   # gamescope 下读 root 会 BadMatch（它自己合成画面，X 端没有内容）
+        try:
+            return int(self.lib.XGetPixel(ctypes.c_void_p(img), 0, 0))
+        finally:
+            self.lib.XDestroyImage(ctypes.c_void_p(img))
+
+    def input_focus(self) -> int:
+        """当前 X 输入焦点（XGetInputFocus）。"""
+        w = ctypes.c_ulong(0)
+        revert = ctypes.c_int(0)
+        self.lib.XGetInputFocus(ctypes.c_void_p(self.dpy), ctypes.byref(w), ctypes.byref(revert))
+        return int(w.value)
+
+    def active_window(self) -> int:
+        """当前 _NET_ACTIVE_WINDOW（WM 认可的"活动窗口"）。"""
+        raw = self._raw_prop(self.root, self._active_atom)
+        return int.from_bytes(raw[:4].ljust(4, b"\0"), "little") if raw else 0
+
+    def activate(self, wid: int, timestamp: int = 0) -> None:
+        """EWMH `_NET_ACTIVE_WINDOW`：向 WM **请求**"请把某窗口激活/置前"。
+
+        XRaiseWindow / XSetInputFocus 是自己动手改，gamescope(steamcompmgr) 一律忽略；
+        而 `_NET_ACTIVE_WINDOW` 是它**自己会处理**的客户端消息 —— game mode 下唯一可能生效的
+        "置前"手段。data[0]=2 表示来源是"分页器/外部工具"（WM 通常会照做）。
+        """
+
+        class _ClientMessage(ctypes.Structure):
+            _fields_ = [
+                ("type", ctypes.c_int),
+                ("serial", ctypes.c_ulong),
+                ("send_event", ctypes.c_int),
+                ("display", ctypes.c_void_p),
+                ("window", ctypes.c_ulong),
+                ("message_type", ctypes.c_ulong),
+                ("format", ctypes.c_int),
+                ("data", ctypes.c_long * 5),
+            ]
+
+        ev = _ClientMessage()
+        ev.type = 33            # ClientMessage
+        ev.window = wid
+        ev.message_type = self._active_atom
+        ev.format = 32
+        ev.data[0] = 2          # source indication: 2 = pager
+        ev.data[1] = timestamp  # 0 = CurrentTime
+        ev.data[2] = 0
+        mask = (1 << 20) | (1 << 19)   # SubstructureRedirectMask | SubstructureNotifyMask
+        self.lib.XSendEvent(ctypes.c_void_p(self.dpy), ctypes.c_ulong(self.root), 0, mask,
+                            ctypes.byref(ev))
+        self.lib.XFlush(ctypes.c_void_p(self.dpy))
+
 
 _conn: _X | None = None
 _conn_lock = threading.Lock()
@@ -332,6 +440,21 @@ def describe(wins: list[WindowInfo]) -> str:
     return " | ".join(f"{w.title}({w.w}x{w.h})" for w in wins) or "（无）"
 
 
+def verdict_activate(idx_before: int, idx_after: int, active: int, wid: int) -> str:
+    """activate 的判定。
+
+    gamescope **处理** _NET_ACTIVE_WINDOW（内部 XRaiseWindow → restack_win 改它自己的绘制列表），
+    但它**从不把 _NET_ACTIVE_WINDOW 写到 root 上**（源码里那个 atom 只用来比对消息类型）。
+    所以判据是"堆叠索引有没有上去"，只有真正的 EWMH WM(KWin) 才用得上 active 属性。
+    """
+    if idx_after > idx_before:
+        return f"activate：OK（层级 {idx_before}→{idx_after}，已置前）"
+    if active == wid:
+        return f"activate：OK（WM 已记为活动窗口，层级 {idx_before}→{idx_after}）"
+    return (f"activate：**没生效**（层级 {idx_before}→{idx_after}，"
+            f"_NET_ACTIVE_WINDOW={active:#x}）")
+
+
 def apply_actions(win: WindowInfo, actions: list[str], clicker=None) -> list[str]:
     """执行动作并**回读验证**，返回每条的结果说明（含"没生效"）。"""
     c = connection()
@@ -342,7 +465,11 @@ def apply_actions(win: WindowInfo, actions: list[str], clicker=None) -> list[str
         before = [w for w in c.list() if w.wid == win.wid]
         idx_before = c.index_of(win.wid, c.list())
         try:
-            if act == "focus":
+            if act == "activate":
+                c.activate(win.wid)
+                c.raise_(win.wid)
+                c.focus(win.wid)
+            elif act == "focus":
                 c.focus(win.wid)
             elif act == "raise":
                 c.raise_(win.wid)
@@ -382,12 +509,15 @@ def apply_actions(win: WindowInfo, actions: list[str], clicker=None) -> list[str
         idx_after = c.index_of(win.wid, c.list())
         if act == "click":
             results.append("click：已点（效果无法回读）")
+        elif act == "activate":
+            results.append(verdict_activate(idx_before, idx_after, c.active_window(), win.wid))
         elif act == "close":
             results.append("close：已发送关闭事件" + ("" if after else "（窗口已消失）"))
         elif not after:
             results.append(f"{act}：窗口已消失")
         elif act in ("focus", "raise") and idx_after <= idx_before:
-            results.append(f"{act}：**没生效**（层级 {idx_before}→{idx_after}，gamescope 会忽略外部请求）")
+            results.append(f"{act}：**没生效**（层级 {idx_before}→{idx_after}；"
+                           "外部直接改层级会被 WM 吞掉，game mode 请用 activate）")
         elif act.startswith("move:") and before and after and (after[0].x, after[0].y) == (before[0].x, before[0].y):
             results.append(f"{act}：**没生效**（坐标没变，被 WM 忽略）")
         else:
