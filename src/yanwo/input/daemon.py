@@ -39,6 +39,7 @@ class InputDaemon(threading.Thread):
         self.profile = profile or Profile.load(default_profile_path())
         self.device_hint = device_hint or []
         self.cursor = make_cursor(backend)
+        self.log.info("光标后端: %s", self.cursor.name)
         self.mode = MODE_HUB
         self.connected = False
         self.ever_active = False
